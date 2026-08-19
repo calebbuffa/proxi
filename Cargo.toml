@@ -1,0 +1,66 @@
+[package]
+name = "proxi"
+description = "High-performance, user-friendly Rust bindings for PROJ"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["proj", "projection", "coordinate", "transformation", "geospatial"]
+categories = ["science::geo"]
+repository = "https://github.com/calebbuffa/proxi"
+links = "proj"
+
+[dependencies]
+thiserror = "2.0"
+geo = { version = "0.32", optional = true }
+nalgebra = { version = "0.33", optional = true }
+glam = { version = "0.33", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[build-dependencies]
+cmake = "0.1"           # used by the `bundled` feature
+pkg-config = "0.3"      # system discovery on Linux/macOS
+vcpkg = "0.2"           # vcpkg discovery on Windows
+sha2 = "0.10"           # bundled checksum verification
+flate2 = "1.0"          # bundled .tar.gz decompression
+tar = "0.4"             # bundled archive extraction
+zip = "7.2"             # bundled .zip extraction
+serde_json = "1.0"      # parse proxi-native-manifest.json
+toml = "0.9"            # parse native/versions.toml (used by cache.rs if enabled)
+ureq = "3.0"            # pure-Rust HTTP fallback for archive downloads
+
+[dev-dependencies]
+criterion = "0.5"
+serde_json = "1.0"
+
+[[bench]]
+name = "throughput"
+harness = false
+
+[features]
+# Default: full pyproj-like functionality (CURL + TIFF compiled in, network
+# downloads opt-in at runtime via ContextOptions::network_enabled).
+default = ["network", "tiff"]
+# Minimal: PROJ without CURL/TIFF (core transforms + local proj.db only).
+minimal = []
+# Compile CURL support and expose runtime grid downloading. Independent of
+# `tiff`: CURL is only for downloading grids; TIFF is only for reading them.
+network = []
+# Compile GeoTIFF grid support. Independent of `network`.
+tiff = []
+# Force the local full superbuild (self-provisioning) even if a system PROJ
+# is found.
+bundled = []
+
+# Each enables seamless `Coord` integration for a popular geometry/math crate,
+# plus `serde` (de)serialization for the coordinate types.
+geo = ["dep:geo"]
+nalgebra = ["dep:nalgebra"]
+glam = ["dep:glam"]
+serde = ["dep:serde"]
+
+[package.metadata.docs.rs]
+features = ["default"]
+
+[workspace]

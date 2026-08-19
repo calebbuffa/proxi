@@ -1,0 +1,12 @@
+{
+  "include_dir": "@CMAKE_INSTALL_PREFIX@/include",
+  "library_dirs": ["@CMAKE_INSTALL_PREFIX@/lib"],
+  "libraries": @PROXI_LINK_LIBS_JSON@,
+  "frameworks": @PROXI_FRAMEWORKS_JSON@,
+  "system_libraries": @PROXI_SYSTEM_LIBS_JSON@,
+  "data_dir": "@CMAKE_INSTALL_PREFIX@/share/proj",
+  "network": @PROXI_NETWORK_JSON@,
+  "tiff": @PROXI_TIFF_JSON@,
+  "target_triple": "@CMAKE_SYSTEM_PROCESSOR@",
+  "proj_version": "9.4.1"
+}

@@ -1,0 +1,36 @@
+set(source_dir "@OPENSSL_BUILD_TREE@")
+file(REMOVE_RECURSE "${source_dir}")
+file(MAKE_DIRECTORY "${source_dir}")
+file(COPY "@OPENSSL_SRC@/" DESTINATION "${source_dir}")
+
+execute_process(
+  COMMAND "@CMAKE_COMMAND@" -E env
+    "CC=@CMAKE_C_COMPILER@"
+    "CFLAGS=@OPENSSL_CFLAGS@"
+    "LDFLAGS=@CMAKE_EXE_LINKER_FLAGS@"
+    "@OPENSSL_PERL_EXECUTABLE@" ./Configure @OPENSSL_PLATFORM@ no-shared no-tests
+      --prefix=@CMAKE_INSTALL_PREFIX@
+  WORKING_DIRECTORY "${source_dir}"
+  RESULT_VARIABLE configure_result
+)
+if(NOT configure_result EQUAL 0)
+  message(FATAL_ERROR "OpenSSL Configure failed with exit code ${configure_result}")
+endif()
+
+execute_process(
+  COMMAND "@OPENSSL_MAKE_EXECUTABLE@" -j@OPENSSL_JOBS@
+  WORKING_DIRECTORY "${source_dir}"
+  RESULT_VARIABLE build_result
+)
+if(NOT build_result EQUAL 0)
+  message(FATAL_ERROR "OpenSSL build failed with exit code ${build_result}")
+endif()
+
+execute_process(
+  COMMAND "@OPENSSL_MAKE_EXECUTABLE@" install_sw
+  WORKING_DIRECTORY "${source_dir}"
+  RESULT_VARIABLE install_result
+)
+if(NOT install_result EQUAL 0)
+  message(FATAL_ERROR "OpenSSL install failed with exit code ${install_result}")
+endif()

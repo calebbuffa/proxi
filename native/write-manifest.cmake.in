@@ -1,0 +1,71 @@
+set(prefix "@CMAKE_INSTALL_PREFIX@")
+set(manifest "${prefix}/proxi-native-manifest.json")
+set(lib_dir "${prefix}/lib")
+set(frameworks_json [=[@PROXI_FRAMEWORKS_JSON@]=])
+set(system_libraries_json [=[@PROXI_SYSTEM_LIBS_JSON@]=])
+
+file(TO_CMAKE_PATH "${prefix}" prefix)
+file(TO_CMAKE_PATH "${lib_dir}" lib_dir)
+file(GLOB installed_libs LIST_DIRECTORIES false
+  "${lib_dir}/*@CMAKE_STATIC_LIBRARY_SUFFIX@")
+
+# Discover actual filenames, then impose the order required by static linking.
+set(discovered_libraries "")
+foreach(lib_file IN LISTS installed_libs)
+  get_filename_component(lib_name "${lib_file}" NAME_WE)
+  list(APPEND discovered_libraries "${lib_name}")
+endforeach()
+
+set(libraries "")
+foreach(candidate
+    proj
+    libproj
+    curl
+    libcurl
+    tiff
+    libtiff
+    sqlite3
+    z
+    zlib
+    ssl
+    libssl
+    crypto
+    libcrypto)
+  list(FIND discovered_libraries "${candidate}" candidate_index)
+  if(candidate_index GREATER -1)
+    list(FIND libraries "${candidate}" existing_index)
+    if(existing_index EQUAL -1)
+      list(APPEND libraries "${candidate}")
+    endif()
+  endif()
+endforeach()
+
+# Preserve any newly discovered private libraries after the known dependency chain.
+foreach(lib_name IN LISTS discovered_libraries)
+  list(FIND libraries "${lib_name}" existing_index)
+  if(existing_index EQUAL -1)
+    list(APPEND libraries "${lib_name}")
+  endif()
+endforeach()
+
+set(libraries_json "[")
+foreach(lib_name IN LISTS libraries)
+  if(NOT libraries_json STREQUAL "[")
+    string(APPEND libraries_json ",")
+  endif()
+  string(APPEND libraries_json "\"${lib_name}\"")
+endforeach()
+string(APPEND libraries_json "]")
+
+file(WRITE "${manifest}" "{
+")
+file(APPEND "${manifest}" "  \"include_dir\": \"${prefix}/include\",\n")
+file(APPEND "${manifest}" "  \"library_dirs\": [\"${prefix}/lib\"],\n")
+file(APPEND "${manifest}" "  \"libraries\": ${libraries_json},\n")
+file(APPEND "${manifest}" "  \"frameworks\": ${frameworks_json},\n")
+file(APPEND "${manifest}" "  \"system_libraries\": ${system_libraries_json},\n")
+file(APPEND "${manifest}" "  \"data_dir\": \"${prefix}/share/proj\",\n")
+file(APPEND "${manifest}" "  \"network\": @PROXI_NETWORK_JSON@,\n")
+file(APPEND "${manifest}" "  \"tiff\": @PROXI_TIFF_JSON@,\n")
+file(APPEND "${manifest}" "  \"target_triple\": \"@CMAKE_SYSTEM_PROCESSOR@\",\n")
+file(APPEND "${manifest}" "  \"proj_version\": \"9.4.1\"\n}\n")

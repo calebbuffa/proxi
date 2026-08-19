@@ -1,0 +1,39 @@
+# proxi native dependency manifest.
+#
+# Every native dependency is pinned to an exact version with a fixed HTTPS
+# URL and SHA-256 checksum. The archive  cache (`build.rs`) downloads, verifies,
+# and extracts these deterministically; subsequent builds never re-download a
+# valid archive.
+# The checksums below were computed from the official release archives.
+# When bumping a dependency, fetch the new archive once, compute
+# its SHA-256, and update BOTH the version string and the checksum together.
+
+[proj]
+version = "9.4.1"
+url = "https://download.osgeo.org/proj/proj-9.4.1.tar.gz"
+sha256 = "ffe20170ee2b952207adf8a195e2141eab12cda181e49fdeb54425d98c7171d7"
+
+[sqlite]
+version = "3450300"           # SQLite 3.45.3 (amalgamation)
+url = "https://sqlite.org/2024/sqlite-amalgamation-3450300.zip"
+sha256 = "ea170e73e447703e8359308ca2e4366a3ae0c4304a8665896f068c736781c651"
+
+[zlib]
+version = "1.3.1"
+url = "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
+sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+
+[tiff]
+version = "4.6.0"
+url = "https://download.osgeo.org/libtiff/tiff-4.6.0.tar.gz"
+sha256 = "88b3979e6d5c7e32b50d7ec72fb15af724f6ab2cbf7e10880c360a77e4b5d99a"
+
+[curl]
+version = "8.7.1"
+url = "https://curl.se/download/curl-8.7.1.tar.gz"
+sha256 = "f91249c87f68ea00cf27c44fdfa5a78423e41e71b7d408e5901a9896d905c495"
+
+[openssl]
+version = "3.0.13"
+url = "https://www.openssl.org/source/openssl-3.0.13.tar.gz"
+sha256 = "88525753f79d3bec27d2fa7c66aa0b92b3aa9498dafd93d7cfa4b3780cdae313"
