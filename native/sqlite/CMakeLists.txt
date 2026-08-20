@@ -48,6 +48,9 @@ if(MSVC)
   target_compile_options(sqlite3 PRIVATE /W0)
 else()
   target_compile_options(sqlite3 PRIVATE -w)
+  # FTS5's BM25 ranking calls log(); glibc/libm don't get linked implicitly
+  # like they do via the Windows CRT / macOS libSystem.
+  target_link_libraries(sqlite3 PUBLIC m)
 endif()
 
 # Host/CLI tool.
