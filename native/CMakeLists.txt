@@ -226,6 +226,13 @@ set(CURL_INSTALL "${CMAKE_INSTALL_PREFIX}")
 # ---------------- libtiff ----------------
 if(ENABLE_TIFF)
   proxi_source_dir(tiff "4.6.0" TIFF_SRC)
+  set(TIFF_INSTALL_COMMAND ${CMAKE_COMMAND} --install <BINARY_DIR>)
+  if(APPLE)
+    list(APPEND TIFF_INSTALL_COMMAND
+      COMMAND ${CMAKE_COMMAND} "-DFILE=${CMAKE_INSTALL_PREFIX}/lib/cmake/tiff/TiffTargets.cmake"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/patch-tiff-targets.cmake"
+    )
+  endif()
   ExternalProject_Add(ep_tiff
     SOURCE_DIR "${TIFF_SRC}"
     CMAKE_ARGS ${COMMON_ARGS}
@@ -234,6 +241,7 @@ if(ENABLE_TIFF)
       -DCMAKE_PREFIX_PATH=${CMAKE_INSTALL_PREFIX}
     BUILD_BYPRODUCTS ${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}tiff${CMAKE_STATIC_LIBRARY_SUFFIX}
     DEPENDS ep_zlib
+    INSTALL_COMMAND ${TIFF_INSTALL_COMMAND}
   )
 endif()
 set(TIFF_INSTALL "${CMAKE_INSTALL_PREFIX}")
