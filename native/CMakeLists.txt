@@ -296,6 +296,7 @@ elseif(WIN32)
       "[\"ws2_32\",\"crypt32\",\"secur32\",\"ncrypt\",\"wldap32\",\"schannel\",\"normaliz\",\"bcrypt\",\"ole32\",\"shell32\",\"advapi32\",\"user32\",\"gdi32\"]")
 else()
   set(PROXI_SYSTEM_LIBS_JSON "[\"dl\",\"pthread\",\"m\",\"rt\"]")
+  set(PROXI_SYSTEM_LIBS_JSON "[\"dl\",\"pthread\",\"m\",\"rt\",\"stdc++\"]")
 endif()
 
 if(ENABLE_NETWORK)

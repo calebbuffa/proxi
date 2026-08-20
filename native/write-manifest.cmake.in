@@ -43,6 +43,19 @@ foreach(candidate
   endif()
 endforeach()
 
+# OpenSSL is built outside CMake, so it is not always discovered by the glob
+# ordering above even though static libcurl requires it on Linux.
+if(NOT WIN32 AND NOT APPLE)
+  foreach(candidate ssl crypto)
+    if(EXISTS "${lib_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}${candidate}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+      list(FIND libraries "${candidate}" existing_index)
+      if(existing_index EQUAL -1)
+        list(APPEND libraries "${candidate}")
+      endif()
+    endif()
+  endforeach()
+endif()
+
 # Preserve any newly discovered private libraries after the known dependency chain.
 foreach(lib_name IN LISTS discovered_libraries)
   if(WIN32 AND lib_name STREQUAL "zlib")
