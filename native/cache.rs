@@ -1,19 +1,23 @@
-// Deterministic native dependency cache for proxi's build script.
-// This file is `include!`-ed into `build.rs`, so it must NOT redeclare the
-// imports that build.rs already provides, and must not use module-level `//!`
-// inner doc comments (they're invalid in an included fragment). It provides:
-//   - loading native/versions.toml (pinned version, URL, SHA-256 per dep)
-//   - a deterministic archive cache under $PROXI_CACHE (or
-//     $CARGO_HOME/proxi-cache) with archives/, sources/, builds/, installs/
-//   - download-to-.partial, SHA-256 verify, atomic rename
-//   - PROXI_OFFLINE=1 mode: fail clearly if an archive is missing
-//
-// Design rules:
-//   - No floating "latest" URLs; every dep is pinned.
-//   - Never re-download a valid archive.
-//   - Extraction goes into versioned sources/<name>-<version>/ dirs.
+//! Deterministic native dependency cache for proxi's build script. Provides:
+//!   - loading native/versions.toml (pinned version, URL, SHA-256 per dep)
+//!   - a deterministic archive cache under $PROXI_CACHE (or
+//!     $CARGO_HOME/proxi-cache) with archives/, sources/, builds/, installs/
+//!   - download-to-.partial, SHA-256 verify, atomic rename
+//!   - PROXI_OFFLINE=1 mode: fail clearly if an archive is missing
+//!
+//! Design rules:
+//!   - No floating "latest" URLs; every dep is pinned.
+//!   - Never re-download a valid archive.
+//!   - Extraction goes into versioned sources/<name>-<version>/ dirs.
+//!
+//! Nothing here is PROJ-specific — it only knows about pinned archives and a
+//! cache directory layout, so it's a candidate for extraction into a
+//! standalone crate if a second consumer ever needs the same machinery.
 
 use std::collections::BTreeMap;
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// A single pinned native dependency.
 #[derive(Clone, Debug)]
@@ -129,6 +133,8 @@ impl NativeVersions {
         Ok(Self { deps })
     }
 
+    // Kept for API completeness (e.g. future targeted-dependency lookups).
+    #[allow(dead_code)]
     pub fn get(&self, name: &str) -> Option<&NativeDep> {
         self.deps.get(name)
     }
@@ -155,7 +161,7 @@ fn archive_filename(url: &str, name: &str) -> String {
 }
 
 /// Resolve the cache root: $PROXI_CACHE or $CARGO_HOME/proxi-cache.
-fn cache_root() -> Result<PathBuf, String> {
+pub fn cache_root() -> Result<PathBuf, String> {
     if let Some(p) = env::var_os("PROXI_CACHE") {
         return Ok(PathBuf::from(p));
     }
@@ -182,6 +188,8 @@ pub fn sources_dir() -> Result<PathBuf, String> {
 }
 
 /// The installs/ directory (each dependency's private install prefix).
+// Kept for API completeness; not currently read by the superbuild.
+#[allow(dead_code)]
 pub fn installs_dir() -> Result<PathBuf, String> {
     Ok(cache_root()?.join("installs"))
 }

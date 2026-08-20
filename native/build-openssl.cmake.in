@@ -5,7 +5,7 @@ file(COPY "@OPENSSL_SRC@/" DESTINATION "${source_dir}")
 
 execute_process(
   COMMAND "@CMAKE_COMMAND@" -E env
-    "CC=@CMAKE_C_COMPILER@"
+    "CC=@OPENSSL_CC@"
     "CFLAGS=@OPENSSL_CFLAGS@"
     "LDFLAGS=@CMAKE_EXE_LINKER_FLAGS@"
     "@OPENSSL_PERL_EXECUTABLE@" ./Configure @OPENSSL_PLATFORM@ no-shared no-tests

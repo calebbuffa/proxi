@@ -35,6 +35,13 @@ set(SOURCES "${PROXI_SOURCES_DIR}" CACHE STRING "")
 set(ENABLE_NETWORK "${PROXI_ENABLE_NETWORK}" CACHE BOOL "build curl+TLS" )
 set(ENABLE_TIFF "${PROXI_ENABLE_TIFF}" CACHE BOOL "build libtiff" )
 
+# sccache/ccache if build.rs found one on PATH; empty means "none available".
+set(COMPILER_LAUNCHER "${PROXI_COMPILER_LAUNCHER}" CACHE STRING "compiler cache path")
+if(COMPILER_LAUNCHER)
+  set(CMAKE_C_COMPILER_LAUNCHER "${COMPILER_LAUNCHER}")
+  set(CMAKE_CXX_COMPILER_LAUNCHER "${COMPILER_LAUNCHER}")
+endif()
+
 # zlib, curl, tiff, proj tarballs extract a single top-level dir.
 function(proxi_source_dir dep_name dep_version out)
   set(base "${SOURCES}/${dep_name}-${dep_version}")
@@ -61,6 +68,14 @@ set(COMMON_ARGS
 # Propagate the single-CRT choice to every ExternalProject (zlib, curl, tiff, PROJ).
 if(MSVC)
   list(APPEND COMMON_ARGS "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL")
+endif()
+# ExternalProject_Add configures each dep in its own cmake invocation, so the
+# launcher must be passed explicitly rather than relying on the cache var above.
+if(COMPILER_LAUNCHER)
+  list(APPEND COMMON_ARGS
+    "-DCMAKE_C_COMPILER_LAUNCHER=${COMPILER_LAUNCHER}"
+    "-DCMAKE_CXX_COMPILER_LAUNCHER=${COMPILER_LAUNCHER}"
+  )
 endif()
 
 # ============ SQLite: host tool + target library ============
@@ -146,6 +161,12 @@ if(NOT WIN32 AND NOT APPLE)
   set(OPENSSL_CFLAGS "${CMAKE_C_FLAGS} -fPIC")
   find_program(OPENSSL_PERL_EXECUTABLE perl REQUIRED)
   find_program(OPENSSL_MAKE_EXECUTABLE NAMES gmake make REQUIRED)
+  # OpenSSL's own build system isn't CMake, so the launcher must be baked
+  # into the CC invocation directly rather than via CMAKE_C_COMPILER_LAUNCHER.
+  set(OPENSSL_CC "${CMAKE_C_COMPILER}")
+  if(COMPILER_LAUNCHER)
+    set(OPENSSL_CC "${COMPILER_LAUNCHER} ${CMAKE_C_COMPILER}")
+  endif()
   if(CMAKE_BUILD_PARALLEL_LEVEL)
     set(OPENSSL_JOBS "${CMAKE_BUILD_PARALLEL_LEVEL}")
   else()

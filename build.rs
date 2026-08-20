@@ -13,72 +13,61 @@
 //! manifest and emits all static link directives in dependency order — no
 //! CI artifacts or prebuilt binaries are used.
 
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use sha2::{Digest, Sha256};
 
-// Deterministic native dependency cache + versions manifest.
-include!("native/cache.rs");
+#[path = "native/cache.rs"]
+mod cache;
+#[path = "native/manifest.rs"]
+mod manifest;
+#[path = "native/system_probe.rs"]
+mod system_probe;
+#[path = "native/toolchain.rs"]
+mod toolchain;
+
+use cache::{NativeVersions, archives_dir, cache_root, sources_dir};
+use system_probe::{EnvDirProbe, PkgConfigProbe, SystemProbe, VcpkgProbe};
+use toolchain::ToolchainChoice;
 
 /// Win condition: the crate links against a usable libproj. This build script
 /// must set up the link environment (search paths / link-libs / include) via
 /// `cargo:...` directives before returning.
 fn main() {
+    // docs.rs builds in a network-isolated sandbox; rustdoc only needs the
+    // crate to type-check as an rlib, not a linked library, so skip the
+    // superbuild entirely rather than failing on the first download attempt.
+    if env::var("DOCS_RS").is_ok() {
+        return;
+    }
+
     // Respect explicit "force local superbuild".
     if env::var("PROXI_BUNDLED").map(|v| v == "1").unwrap_or(false) {
         run_superbuild();
         return;
     }
 
-    // PROJ_DIR override (pyproj-compatible).
-    if let Some(dir) = env::var_os("PROJ_DIR") {
-        let dir = PathBuf::from(dir);
-        if validate_installation(&dir, required_capabilities()).is_ok() {
-            link_from_prefix(&dir);
-            println!("cargo:rerun-if-env-changed=PROJ_DIR");
-            return;
-        } else {
-            eprintln!(
-                "PROXI: PROJ_DIR={} is set but does not satisfy requested capabilities; \
-                 falling back to a local superbuild.",
-                dir.display()
-            );
-        }
-    }
-
-    // vcpkg on Windows.
-    #[cfg(target_env = "msvc")]
-    {
-        let mut config = vcpkg::Config::new();
-        if let Ok(lib) = config.find_package("proj") {
-            // Best-effort: assume a complete vcpkg PROJ installation.
-            let inc = lib.include_paths.first().cloned();
-            if let Some(inc) = inc {
-                eprintln!("PROXI: using vcpkg libproj at {}", inc.display());
-                println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
-                return;
-            }
-        }
-    }
-
-    // pkg-config on Unix (unless bundled).
-    #[cfg(unix)]
-    if !has_flag("bundled") {
-        if let Ok(pkg) = pkg_config::Config::new().probe("proj") {
-            eprintln!(
-                "PROXI: using system libproj via pkg-config: {}",
-                pkg.version
-            );
-            // pkg-config emits its own link directives.
-            println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
+    // Tried in order; each degrades to "not found" rather than failing hard.
+    // Add a new detection method by adding a probe here, not by editing one.
+    let probes: Vec<Box<dyn SystemProbe>> = vec![
+        Box::new(EnvDirProbe {
+            env_var: "PROJ_DIR", // pyproj-compatible override
+            validate: |dir: &Path| validate_installation(dir, required_capabilities()),
+            link: link_from_prefix,
+        }),
+        Box::new(VcpkgProbe { package: "proj" }),
+        Box::new(PkgConfigProbe {
+            package: "proj",
+            skip: has_flag("bundled"),
+        }),
+    ];
+    for probe in &probes {
+        if probe.try_use() {
             return;
         }
     }
-
-    // Push the `bundled` cargo feature through to the superbuild config too.
-    let _ = has_flag("bundled");
 
     // Default: local full superbuild (self-provisioning).
     run_superbuild();
@@ -171,9 +160,9 @@ fn run_superbuild() {
     let versions = NativeVersions::load(&manifest_dir)
         .unwrap_or_else(|e| panic!("PROXI: cannot load native/versions.toml: {e}"));
     for (name, dep) in &versions.deps {
-        ensure_archive(dep)
+        cache::ensure_archive(dep)
             .unwrap_or_else(|e| panic!("PROXI: failed to resolve native dependency `{name}`: {e}"));
-        ensure_source(dep)
+        cache::ensure_source(dep)
             .unwrap_or_else(|e| panic!("PROXI: failed to extract native dependency `{name}`: {e}"));
     }
 
@@ -191,19 +180,38 @@ fn run_superbuild() {
     ));
     fs::create_dir_all(&build_dir).expect("create superbuild dir");
 
+    // CMake permanently binds a build tree to the exact `-S` path it was
+    // configured with. The checkout path varies (a different clone, a
+    // `cargo publish` verification copy, a new crate version's registry
+    // dir) even when `native/`'s content doesn't, which would otherwise force
+    // a wipe-and-recompile every time. Mirroring into a path keyed by the
+    // same content hash gives CMake a stable `-S` target so identical
+    // content always reuses the same build tree, regardless of where the
+    // original checkout lives.
+    let mirrored_source_dir = cache_root()
+        .unwrap()
+        .join("superbuild-src")
+        .join(&cache_key);
+    mirror_source_dir(&source_dir, &mirrored_source_dir);
+
     let install_prefix = env::var_os("PROXI_PREFIX")
         .map(PathBuf::from)
         .unwrap_or_else(|| build_dir.join("prefix"));
 
-    let cache_root = archives_dir().expect("archives dir");
+    // Best-available toolchain, always with a fallback that every machine has.
+    let toolchain = ToolchainChoice::detect();
+    toolchain.reset_build_dir_if_stale(&build_dir, &mirrored_source_dir);
+
+    let cache_root_dir = archives_dir().expect("archives dir");
     let mut cmd = Command::new("cmake");
-    cmd.arg("-S").arg(&source_dir);
+    cmd.arg("-S").arg(&mirrored_source_dir);
     cmd.arg("-B").arg(&build_dir);
+    toolchain.apply_to_configure(&mut cmd, "PROXI_COMPILER_LAUNCHER");
     cmd.arg(format!(
         "-DCMAKE_INSTALL_PREFIX={}",
         install_prefix.display()
     ));
-    cmd.arg(format!("-DPROXI_CACHE_ROOT={}", cache_root.display()));
+    cmd.arg(format!("-DPROXI_CACHE_ROOT={}", cache_root_dir.display()));
     cmd.arg(format!(
         "-DPROXI_ARCHIVES_DIR={}",
         archives_dir().expect("archives dir").display()
@@ -236,15 +244,18 @@ fn run_superbuild() {
         panic!("PROXI: cmake configure failed (see output above)");
     }
 
-    // Build.
+    // Build. `--parallel` covers this invocation; the env var propagates to
+    // the nested `cmake --build` processes each ExternalProject step spawns.
     let mut build = Command::new("cmake");
     build
         .arg("--build")
         .arg(&build_dir)
         .arg("--config")
         .arg("Release");
+    let jobs = toolchain.apply_to_build(&mut build);
     eprintln!(
-        "PROXI: building native superbuild (this compiles zlib, SQLite, TLS, curl, tiff, PROJ)"
+        "PROXI: building native superbuild with {jobs} parallel job(s) \
+         (this compiles zlib, SQLite, TLS, curl, tiff, PROJ)"
     );
     let status = build
         .status()
@@ -261,13 +272,16 @@ fn run_superbuild() {
             manifest_path.display()
         );
     }
-    emit_link_directives(&manifest_path, &install_prefix);
+    manifest::emit_link_directives(&manifest_path);
 
     println!("cargo:rerun-if-env-changed=PROXI_PREFIX");
     println!("cargo:rerun-if-env-changed=PROXI_CACHE");
     println!("cargo:rerun-if-env-changed=PROXI_OFFLINE");
     println!("cargo:rerun-if-changed=native/versions.toml");
     println!("cargo:rerun-if-changed=native/cache.rs");
+    println!("cargo:rerun-if-changed=native/toolchain.rs");
+    println!("cargo:rerun-if-changed=native/system_probe.rs");
+    println!("cargo:rerun-if-changed=native/manifest.rs");
     println!("cargo:rerun-if-changed=native/CMakeLists.txt");
     println!("cargo:rerun-if-changed=native/sqlite/CMakeLists.txt");
     println!("cargo:rerun-if-changed=native/write-manifest.cmake.in");
@@ -275,86 +289,89 @@ fn run_superbuild() {
 }
 
 /// Produce a short stable identity for the native build inputs that CMake
-/// embeds in its cache. Different checkouts and feature configurations must
-/// never share one CMake build tree.
+/// embeds in its cache. Hashed by *content*, not by checkout path, so
+/// installing the same version from a different folder (a fresh `git clone`,
+/// a new `cargo install --path`, etc.) reuses the existing compiled build
+/// tree instead of recompiling the whole native graph from scratch.
 fn native_build_cache_key(source_dir: &Path) -> String {
-    let source = source_dir
-        .canonicalize()
-        .unwrap_or_else(|_| source_dir.to_path_buf());
-    let mut identity = source.to_string_lossy().to_lowercase();
-    identity.push('|');
-    identity.push_str(env::var("TARGET").unwrap_or_default().as_str());
-    identity.push('|');
-    identity.push_str(if has_flag("network") { "network" } else { "no-network" });
-    identity.push('|');
-    identity.push_str(if has_flag("tiff") { "tiff" } else { "no-tiff" });
-    identity.push('|');
-    identity.push_str(
-        &env::var_os("PROXI_PREFIX")
-            .map(|value| value.to_string_lossy().to_lowercase())
-            .unwrap_or_default(),
-    );
-    let digest = Sha256::digest(identity.as_bytes());
+    let mut hasher = Sha256::new();
+    hash_dir_contents(source_dir, source_dir, &mut hasher);
+    hasher.update(env::var("TARGET").unwrap_or_default().as_bytes());
+    hasher.update(if has_flag("network") {
+        b"network".as_slice()
+    } else {
+        b"no-network".as_slice()
+    });
+    hasher.update(if has_flag("tiff") {
+        b"tiff".as_slice()
+    } else {
+        b"no-tiff".as_slice()
+    });
+    if let Some(prefix) = env::var_os("PROXI_PREFIX") {
+        hasher.update(prefix.to_string_lossy().to_lowercase().as_bytes());
+    }
+    let digest = hasher.finalize();
     digest[..8]
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
 }
 
-/// Parse `proxi-native-manifest.json` and emit `cargo:rustc-*` directives.
-fn emit_link_directives(manifest_path: &Path, prefix: &Path) {
-    let text = fs::read_to_string(manifest_path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", manifest_path.display()));
-    let m: serde_json::Value =
-        serde_json::from_str(&text).unwrap_or_else(|e| panic!("invalid manifest JSON: {e}"));
-
-    let include = m["include_dir"].as_str().unwrap_or("");
-    if !include.is_empty() {
-        println!("cargo:include={include}");
-    }
-    if let Some(dirs) = m["library_dirs"].as_array() {
-        for d in dirs {
-            if let Some(s) = d.as_str() {
-                println!("cargo:rustc-link-search=native={s}");
-            }
+/// Fold every file under `dir` (path relative to `root` + contents) into
+/// `hasher`, in a stable order, so identical `native/` trees hash identically
+/// regardless of where on disk they happen to live.
+fn hash_dir_contents(root: &Path, dir: &Path, hasher: &mut Sha256) {
+    let mut entries: Vec<_> = fs::read_dir(dir)
+        .map(|rd| rd.filter_map(Result::ok).map(|e| e.path()).collect())
+        .unwrap_or_default();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            hash_dir_contents(root, &path, hasher);
+        } else if let Ok(bytes) = fs::read(&path) {
+            let rel = path.strip_prefix(root).unwrap_or(&path);
+            hasher.update(rel.to_string_lossy().to_lowercase().as_bytes());
+            hasher.update(&bytes);
         }
     }
-    if let Some(libs) = m["libraries"].as_array() {
-        for lib in libs {
-            if let Some(s) = lib.as_str() {
-                // The manifest gives the concrete static-library basename as
-                // installed, e.g. "proj", "libcurl", "zlib", "tiff",
-                // "sqlite3". rustc-link-lib just needs this name (Cargo appends
-                // the platform suffix/.lib). Do NOT strip the `lib` prefix or
-                // the `.lib`/`.a` suffix here — the value is already exactly
-                // what the linker expects.
-                println!("cargo:rustc-link-lib=static={s}");
-            }
-        }
-    }
-    if let Some(fw) = m["frameworks"].as_array() {
-        for f in fw {
-            if let Some(s) = f.as_str() {
-                println!("cargo:rustc-link-lib=framework={s}");
-            }
-        }
-    }
-    if let Some(sys) = m["system_libraries"].as_array() {
-        for s in sys {
-            if let Some(name) = s.as_str() {
-                println!("cargo:rustc-link-lib=dylib={name}");
-            }
-        }
-    }
-    if let Some(data) = m["data_dir"].as_str() {
-        if !data.is_empty() {
-            println!("cargo:rustc-env=PROXI_BUNDLED_DATA_DIR={data}");
-        }
-    }
-    let _ = prefix;
 }
 
 /// Whether a cargo feature flag is enabled.
 fn has_flag(flag: &str) -> bool {
     env::var(format!("CARGO_FEATURE_{}", flag.to_uppercase())).is_ok()
+}
+
+/// Copy `src` into `dest` if `dest` doesn't already exist. `dest` is keyed by
+/// a content hash of `src`, so an existing `dest` is guaranteed (short of a
+/// hash collision) to already hold identical content — never re-copied.
+fn mirror_source_dir(src: &Path, dest: &Path) {
+    if dest.exists() {
+        return;
+    }
+    fs::create_dir_all(dest).expect("create mirrored superbuild source dir");
+    copy_dir_recursive(src, dest);
+}
+
+/// Recursively copy every entry under `src` into `dest`.
+fn copy_dir_recursive(src: &Path, dest: &Path) {
+    for entry in fs::read_dir(src)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", src.display()))
+        .flatten()
+    {
+        let path = entry.path();
+        let target = dest.join(entry.file_name());
+        if path.is_dir() {
+            fs::create_dir_all(&target)
+                .unwrap_or_else(|e| panic!("cannot create {}: {e}", target.display()));
+            copy_dir_recursive(&path, &target);
+        } else {
+            fs::copy(&path, &target).unwrap_or_else(|e| {
+                panic!(
+                    "cannot mirror {} to {}: {e}",
+                    path.display(),
+                    target.display()
+                )
+            });
+        }
+    }
 }
