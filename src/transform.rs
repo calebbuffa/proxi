@@ -1602,7 +1602,7 @@ impl<'context> Transformer<'context> {
     }
 
     /// Transform `[x, y, z]` points in place with a completeness (NaN/Inf)
-    /// policy, reporting any partial failure via [`PartialFailure`].
+    /// policy, reporting any partial failure via [`crate::errors::PartialFailure`].
     ///
     /// NaN/Inf policy: a point whose `x` or `y` is non-finite is *not* sent to
     /// PROJ. It counts toward `total` but not `processed`, and its output is
