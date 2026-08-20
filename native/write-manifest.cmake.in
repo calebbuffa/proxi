@@ -13,6 +13,9 @@ file(GLOB installed_libs LIST_DIRECTORIES false
 set(discovered_libraries "")
 foreach(lib_file IN LISTS installed_libs)
   get_filename_component(lib_name "${lib_file}" NAME_WE)
+  if(NOT WIN32 AND lib_name MATCHES "^lib(.+)")
+    set(lib_name "${CMAKE_MATCH_1}")
+  endif()
   list(APPEND discovered_libraries "${lib_name}")
 endforeach()
 
@@ -24,17 +27,13 @@ else()
 endif()
 foreach(candidate
     proj
-    libproj
     curl
-    libcurl
     tiff
-    libtiff
     sqlite3
     ${zlib_candidates}
     ssl
-    libssl
     crypto
-    libcrypto)
+  )
   list(FIND discovered_libraries "${candidate}" candidate_index)
   if(candidate_index GREATER -1)
     list(FIND libraries "${candidate}" existing_index)
