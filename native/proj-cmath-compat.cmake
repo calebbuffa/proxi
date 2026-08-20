@@ -1,0 +1,10 @@
+# libtiff 4.6.0 exports CMath::CMath without declaring its dependency.
+if(NOT TARGET CMath::CMath)
+  find_library(CMath_LIBRARY NAMES m)
+  if(CMath_LIBRARY)
+    add_library(CMath::CMath UNKNOWN IMPORTED)
+    set_target_properties(CMath::CMath PROPERTIES IMPORTED_LOCATION "${CMath_LIBRARY}")
+  else()
+    add_library(CMath::CMath INTERFACE IMPORTED)
+  endif()
+endif()
