@@ -17,6 +17,11 @@ foreach(lib_file IN LISTS installed_libs)
 endforeach()
 
 set(libraries "")
+if(WIN32)
+  set(zlib_candidates zlibstatic)
+else()
+  set(zlib_candidates z zlib)
+endif()
 foreach(candidate
     proj
     libproj
@@ -25,8 +30,7 @@ foreach(candidate
     tiff
     libtiff
     sqlite3
-    z
-    zlib
+    ${zlib_candidates}
     ssl
     libssl
     crypto
@@ -42,6 +46,9 @@ endforeach()
 
 # Preserve any newly discovered private libraries after the known dependency chain.
 foreach(lib_name IN LISTS discovered_libraries)
+  if(WIN32 AND lib_name STREQUAL "zlib")
+    continue()
+  endif()
   list(FIND libraries "${lib_name}" existing_index)
   if(existing_index EQUAL -1)
     list(APPEND libraries "${lib_name}")

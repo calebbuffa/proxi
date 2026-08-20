@@ -64,6 +64,7 @@ set(COMMON_ARGS
   -DCMAKE_BUILD_TYPE=Release
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON
   -DBUILD_SHARED_LIBS=OFF
+  -DZLIB_USE_STATIC_LIBS=ON
 )
 # Propagate the single-CRT choice to every ExternalProject (zlib, curl, tiff, PROJ).
 if(MSVC)
