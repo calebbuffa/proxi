@@ -255,6 +255,11 @@ proxi_source_dir(proj "9.4.1" PROJ_SRC)
 set(PROJ_DEPENDS ep_zlib sqlite3)
 if(CMAKE_CROSSCOMPILING)
   list(APPEND PROJ_DEPENDS sqlite3_host)  # Ensure host sqlite3 is available
+elseif(TARGET sqlite3_exe)
+  # Native build: PROJ's configure step shells out to the `sqlite3` CLI to
+  # populate proj.db, so it must wait for that target too, not just the
+  # library — otherwise parallel builds can race ep_proj ahead of it.
+  list(APPEND PROJ_DEPENDS sqlite3_exe)
 endif()
 if(ENABLE_NETWORK)
   list(APPEND PROJ_DEPENDS ep_curl)
