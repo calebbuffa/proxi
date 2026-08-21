@@ -1463,17 +1463,11 @@ fn wkt_option_strings(options: &crate::options::WktOptions) -> Vec<String> {
     strings
 }
 
-/// Copy a NUL-terminated string returned by PROJ, then free it with
-/// `proj_string_destroy` (PROJ's documented `free`).
+/// Copy a NUL-terminated string whose lifetime is owned by a PROJ object.
 ///
-/// For the allocator contract (esp. the MSVC no-free guard) see P0.1:
-/// `proj_string_destroy` is literally `free(str)`, so it's only valid if PROJ
-/// and Rust share one CRT heap. On non-MSVC the bundled superbuild shares one
-/// allocator and the free is safe (verified leak-free in `tests/string_ownership.rs`).
-/// On MSVC, even with `/MD`, the statically-linked libproj does not reliably
-/// share Rust's CRT heap; freeing corrupts the heap (`0xc0000374`), so we do
-/// NOT free (a bounded, documented leak) until PROJ is linked shared on Windows (M8).
-fn copy_proj_string(ptr: *const std::ffi::c_char) -> Result<String> {
+/// `proj_as_wkt` and `proj_as_projjson` return buffers that remain owned by
+/// the input PJ, so they must not be passed to `proj_string_destroy`.
+fn copy_borrowed_proj_string(ptr: *const std::ffi::c_char) -> Result<String> {
     if ptr.is_null() {
         return Err(ProxiError::InvalidCrs {
             input: String::new(),
@@ -1483,10 +1477,6 @@ fn copy_proj_string(ptr: *const std::ffi::c_char) -> Result<String> {
     let s = unsafe { std::ffi::CStr::from_ptr(ptr) }
         .to_string_lossy()
         .into_owned();
-    #[cfg(not(all(windows, target_env = "msvc")))]
-    unsafe {
-        bindings::proj_string_destroy(ptr.cast_mut());
-    }
     Ok(s)
 }
 
@@ -1532,14 +1522,14 @@ pub(crate) fn as_wkt(
     // Drop c_strings / option_ptrs only after the call returns.
     drop(c_strings);
     drop(option_ptrs);
-    copy_proj_string(ptr)
+    copy_borrowed_proj_string(ptr)
 }
 
 /// PROJJSON output for a PROJ object.
 pub(crate) fn as_projjson(obj: &ProjObj) -> Result<String> {
     let ptr =
         unsafe { bindings::proj_as_projjson(obj.context_ptr(), obj.as_ptr(), std::ptr::null()) };
-    copy_proj_string(ptr)
+    copy_borrowed_proj_string(ptr)
 }
 
 // M4.3: bespoke CRS / conversion constructors.
