@@ -9,7 +9,7 @@ execute_process(
     "CFLAGS=@OPENSSL_CFLAGS@"
     "LDFLAGS=@CMAKE_EXE_LINKER_FLAGS@"
     "@OPENSSL_PERL_EXECUTABLE@" ./Configure @OPENSSL_PLATFORM@ no-shared no-tests
-      --prefix=@CMAKE_INSTALL_PREFIX@
+      --prefix=@CMAKE_INSTALL_PREFIX@ --libdir=lib
   WORKING_DIRECTORY "${source_dir}"
   RESULT_VARIABLE configure_result
 )

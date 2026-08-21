@@ -25,4 +25,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          RUST_BACKTRACE=1 cargo test --test basic operation_group_enumerates_and_promotes_candidate -- --exact --nocapture
+          cargo test --test basic operation_group_enumerates_and_promotes_candidate --no-run
+          binary=$(find target/debug/deps -maxdepth 1 -type f -name 'basic-*' -perm -111 | head -n 1)
+          prefix=$(find "$HOME/.cargo/proxi-cache/builds" -type f -path '*/prefix/share/proj/proj.db' -print -quit | sed 's#/share/proj/proj.db##')
+          test -n "$binary"
+          test -n "$prefix"
+          lldb --batch \
+            -o "settings set target.env-vars PROXI_BUNDLED_DATA_DIR=$prefix/share/proj" \
+            -o 'run operation_group_enumerates_and_promotes_candidate --exact --nocapture' \
+            -o 'bt all' \
+            -- "$binary"
