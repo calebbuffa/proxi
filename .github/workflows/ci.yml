@@ -25,10 +25,4 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo test --test basic operation_group_enumerates_and_promotes_candidate --no-run
-          binary=$(find target/debug/deps -maxdepth 1 -type f -name 'basic-*' -perm -111 | head -n 1)
-          test -n "$binary"
-          lldb --batch \
-            -o 'run operation_group_enumerates_and_promotes_candidate --exact --nocapture' \
-            -o 'bt all' \
-            -- "$binary"
+          RUST_BACKTRACE=1 cargo test --test basic operation_group_enumerates_and_promotes_candidate --exact --nocapture
