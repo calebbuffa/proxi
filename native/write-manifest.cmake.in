@@ -45,7 +45,7 @@ endforeach()
 
 # OpenSSL is built outside CMake, so declare it explicitly when Linux network
 # support is enabled even if manifest-time archive discovery misses the files.
-if(NOT WIN32 AND NOT APPLE AND @PROXI_NETWORK_JSON@)
+if("@PROXI_OPENSSL_REQUIRED@" STREQUAL "ON")
   foreach(candidate ssl crypto)
     list(FIND libraries "${candidate}" existing_index)
     if(existing_index EQUAL -1)
@@ -65,7 +65,7 @@ foreach(lib_name IN LISTS discovered_libraries)
   endif()
 endforeach()
 
-if(NOT WIN32 AND NOT APPLE AND @PROXI_NETWORK_JSON@)
+if("@PROXI_OPENSSL_REQUIRED@" STREQUAL "ON")
   foreach(required_library ssl crypto)
     list(FIND libraries "${required_library}" required_index)
     if(required_index EQUAL -1)
