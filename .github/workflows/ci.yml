@@ -32,6 +32,22 @@ jobs:
           test -n "$prefix"
           lldb --batch \
             -o "settings set target.env-vars PROXI_BUNDLED_DATA_DIR=$prefix/share/proj" \
+            -o 'breakpoint set --name malloc_error_break' \
             -o 'run operation_group_enumerates_and_promotes_candidate --exact --nocapture' \
             -o 'bt all' \
             -- "$binary"
+      - name: Diagnose Ubuntu operation-group crash
+        if: failure() && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --test basic operation_group_enumerates_and_promotes_candidate --no-run
+          binary=$(find target/debug/deps -maxdepth 1 -type f -name 'basic-*' -executable | head -n 1)
+          prefix=$(find "$HOME/.cargo/proxi-cache/builds" -type f -path '*/prefix/share/proj/proj.db' -print -quit | sed 's#/share/proj/proj.db##')
+          test -n "$binary"
+          test -n "$prefix"
+          gdb --batch \
+            -ex "set env PROXI_BUNDLED_DATA_DIR=$prefix/share/proj" \
+            -ex 'run operation_group_enumerates_and_promotes_candidate --exact --nocapture' \
+            -ex 'bt full' \
+            --args "$binary"
