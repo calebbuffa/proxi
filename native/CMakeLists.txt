@@ -291,11 +291,11 @@ set(PROXI_SYSTEM_LIBS_JSON "[]")
 if(APPLE)
   set(PROXI_FRAMEWORKS_JSON
   "[\"Security\",\"CoreFoundation\",\"CoreServices\",\"SystemConfiguration\"]")
+  set(PROXI_SYSTEM_LIBS_JSON "[\"c++\"]")
 elseif(WIN32)
   set(PROXI_SYSTEM_LIBS_JSON
       "[\"ws2_32\",\"crypt32\",\"secur32\",\"ncrypt\",\"wldap32\",\"schannel\",\"normaliz\",\"bcrypt\",\"ole32\",\"shell32\",\"advapi32\",\"user32\",\"gdi32\"]")
 else()
-  set(PROXI_SYSTEM_LIBS_JSON "[\"dl\",\"pthread\",\"m\",\"rt\"]")
   set(PROXI_SYSTEM_LIBS_JSON "[\"dl\",\"pthread\",\"m\",\"rt\",\"stdc++\"]")
 endif()
 
