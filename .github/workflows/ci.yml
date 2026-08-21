@@ -32,8 +32,7 @@ jobs:
           test -n "$prefix"
           lldb --batch \
             -o "settings set target.env-vars PROXI_BUNDLED_DATA_DIR=$prefix/share/proj" \
-            -o 'breakpoint set --name malloc_error_break' \
-            -o 'breakpoint command add -o "bt all" 1' \
+            -o 'target stop-hook add -o "bt all"' \
             -o 'run operation_group_enumerates_and_promotes_candidate --exact --nocapture' \
             -- "$binary"
       - name: Diagnose Ubuntu operation-group crash
