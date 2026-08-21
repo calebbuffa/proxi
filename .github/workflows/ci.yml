@@ -20,3 +20,15 @@ jobs:
       - run: cargo build --verbose
       # - run: cargo test --verbose
       - run: cargo test --verbose -- --test-threads=1 --nocapture
+      - name: Diagnose macOS operation-group crash
+        if: failure() && matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --test basic operation_group_enumerates_and_promotes_candidate --no-run
+          binary=$(find target/debug/deps -maxdepth 1 -type f -name 'basic-*' -perm -111 | head -n 1)
+          test -n "$binary"
+          lldb --batch \
+            -o 'run operation_group_enumerates_and_promotes_candidate --exact --nocapture' \
+            -o 'bt all' \
+            -- "$binary"
