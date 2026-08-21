@@ -43,15 +43,13 @@ foreach(candidate
   endif()
 endforeach()
 
-# OpenSSL is built outside CMake, so it is not always discovered by the glob
-# ordering above even though static libcurl requires it on Linux.
-if(NOT WIN32 AND NOT APPLE)
+# OpenSSL is built outside CMake, so declare it explicitly when Linux network
+# support is enabled even if manifest-time archive discovery misses the files.
+if(NOT WIN32 AND NOT APPLE AND @PROXI_NETWORK_JSON@)
   foreach(candidate ssl crypto)
-    if(EXISTS "${lib_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}${candidate}${CMAKE_STATIC_LIBRARY_SUFFIX}")
-      list(FIND libraries "${candidate}" existing_index)
-      if(existing_index EQUAL -1)
-        list(APPEND libraries "${candidate}")
-      endif()
+    list(FIND libraries "${candidate}" existing_index)
+    if(existing_index EQUAL -1)
+      list(APPEND libraries "${candidate}")
     endif()
   endforeach()
 endif()
