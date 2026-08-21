@@ -199,8 +199,8 @@ impl<'context> Crs<'context> {
         Ok(Self { obj, context })
     }
 
-    /// Build a geographic CRS inline from datum / ellipsoid / prime-meridian
-    /// parameters (M4.3). Returns `None` when PROJ rejects the definition.
+    /// Build a geographic CRS from datum, ellipsoid, and prime-meridian parameters.
+    /// Returns `None` when PROJ rejects the definition.
     ///
     /// `inverse_flattening` may be `0` for a sphere.
     #[allow(clippy::too_many_arguments)]
@@ -231,8 +231,8 @@ impl<'context> Crs<'context> {
         Some(Self { obj, context })
     }
 
-    /// Build a geographic CRS from an explicit datum object + coordinate
-    /// system (M4.3). Both `datum` and `cs` are only *read* by PROJ.
+    /// Build a geographic CRS from an explicit datum object and coordinate system.
+    /// Both `datum` and `cs` are only read by PROJ.
     ///
     /// `datum` is typically the horizontal datum returned by
     /// [`Crs::horizontal_datum`]; `cs` is a coordinate system from [`Proj`].
@@ -246,8 +246,8 @@ impl<'context> Crs<'context> {
         Some(Self { obj, context })
     }
 
-    /// Build a projected CRS from a geodetic CRS + conversion + coordinate
-    /// system (M4.3). All inputs are only *read* by PROJ.
+    /// Build a projected CRS from a geodetic CRS, conversion, and coordinate system.
+    /// All inputs are only read by PROJ.
     pub fn projected(
         context: &'context Context,
         crs_name: &str,
@@ -265,7 +265,7 @@ impl<'context> Crs<'context> {
         Some(Self { obj, context })
     }
 
-    /// Build a vertical CRS inline from datum / linear-unit strings (M4.3).
+    /// Build a vertical CRS from datum and linear-unit strings.
     pub fn vertical(
         context: &'context Context,
         crs_name: &str,
@@ -283,7 +283,7 @@ impl<'context> Crs<'context> {
         Some(Self { obj, context })
     }
 
-    /// Build a compound (horizontal + vertical) CRS (M4.3). Inputs are read-only.
+    /// Build a compound horizontal and vertical CRS. Inputs are read-only.
     pub fn compound(
         context: &'context Context,
         crs_name: &str,
@@ -294,13 +294,13 @@ impl<'context> Crs<'context> {
         Some(Self { obj, context })
     }
 
-    /// Build an engineering CRS (M4.3).
+    /// Build an engineering CRS.
     pub fn engineering(context: &'context Context, crs_name: &str) -> Option<Self> {
         let obj = ffi::create_engineering_crs(context, crs_name)?;
         Some(Self { obj, context })
     }
 
-    /// Build a bound CRS from a base CRS + hub CRS + transformation (M4.3).
+    /// Build a bound CRS from a base CRS, hub CRS, and transformation.
     /// All three are only *read* by PROJ.
     pub fn bound(
         context: &'context Context,

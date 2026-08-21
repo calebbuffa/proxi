@@ -1,8 +1,6 @@
-//! These exercise the public `Context` network-and-cache controls added in M2:
-//! URL endpoint get/set, grid-cache enable/max-size/TTL/clear, and network
-//! enable/disable. They don't require network access (they configure PROJ's
-//! on-disk cache + endpoint, which are local), so they run in the default
-//! (offline) test suite.
+//! Integration tests for `Context` network and cache controls.
+//!
+//! These tests configure local PROJ state and do not require network access.
 
 use proxi::Context;
 

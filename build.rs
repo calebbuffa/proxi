@@ -32,9 +32,7 @@ use cache::{NativeVersions, archives_dir, cache_root, sources_dir};
 use system_probe::{EnvDirProbe, PkgConfigProbe, SystemProbe, VcpkgProbe};
 use toolchain::ToolchainChoice;
 
-/// Win condition: the crate links against a usable libproj. This build script
-/// must set up the link environment (search paths / link-libs / include) via
-/// `cargo:...` directives before returning.
+/// Configure Cargo to link a usable PROJ installation.
 fn main() {
     // docs.rs builds in a network-isolated sandbox; rustdoc only needs the
     // crate to type-check as an rlib, not a linked library, so skip the

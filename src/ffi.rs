@@ -326,8 +326,6 @@ pub(crate) fn database_operations() -> Vec<crate::database::Operation> {
     values
 }
 
-// M4.5: database structured search / lookups
-
 /// Execute a filtered CRS search against the database.
 ///
 /// `types` filters the `PJ_TYPE` kinds (empty = all CRS types). `allow_deprecated`
@@ -1532,8 +1530,6 @@ pub(crate) fn as_projjson(obj: &ProjObj) -> Result<String> {
     copy_borrowed_proj_string(ptr)
 }
 
-// M4.3: bespoke CRS / conversion constructors.
-//
 // A non-CRS object (datum, CS, conversion) is still an owned `PJ*`: drop it
 // with proj_destroy. The composite constructors here only read their PJ
 // arguments (they take `*const PJ`), so callers must keep those alive for the

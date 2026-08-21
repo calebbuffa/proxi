@@ -1,20 +1,8 @@
-//! ## Findings (proved here)
-//!
-//! - PROJ's WKT/PROJJSON writers return pointers to strings owned by the PJ
-//!   object. They remain valid while that object is alive and must not be
-//!   passed to `proj_string_destroy`.
-//! - The safe wrapper copies those strings inside a native shim and frees only
-//!   the shim-owned copy after it crosses into Rust.
-//!
-//! ## What this test does
-//!
-//! - Drives repeated raw exports while the PJ object remains alive, proving
-//!   the object-owned pointers are copied before the object is destroyed.
-//! - Always: validates `proj_info()` runtime version (P0.5 source of truth).
+//! Regression tests for PROJ-owned export strings and runtime version metadata.
 
 use proxi::sys;
 
-/// Repeatedly copy PROJ-owned WKT / PROJJSON strings before object destruction.
+/// Repeatedly copy PROJ-owned WKT and PROJJSON strings before object destruction.
 #[test]
 fn wkt_projjson_repeat_alloc_free_loop() {
     // SAFETY: `proj_context_create` returns a new context or null.
@@ -80,9 +68,7 @@ fn wkt_projjson_repeat_alloc_free_loop() {
     unsafe { sys::proj_context_destroy(ctx_ptr) };
 }
 
-/// The runtime version reported by `proj_info()` must match the version the
-/// crate was generated against (`PROJ_VERSION_MAJOR/MINOR`), since we pin both
-/// to the same bundled build. This is the P0.5 diagnostic source of truth.
+/// The runtime version reported by `proj_info()` must match the bundled build.
 #[test]
 fn proj_info_reports_runtime_version() {
     // SAFETY: `proj_info()` returns a value struct; no pointers to free.

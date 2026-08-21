@@ -1917,8 +1917,7 @@ fn transform_slices_soa(
     Ok(())
 }
 
-/// Core SOA transform that reports a short PROJ count as a partial failure
-/// instead of a hard error (M5).
+/// Core SOA transform that reports a short PROJ count as a partial failure.
 ///
 /// On success returns `Ok(processed)` where `processed == n`. If PROJ stops
 /// early, returns `Err(PartialFailure{processed, total})`. `proj_trans_generic`

@@ -1,6 +1,4 @@
-//! M7 ecosystem-adapter tests. Each test is active only when its feature is
-//! enabled (default-off). They verify the `Coord` bridge and serde derives
-//! work end-to-end over the existing transform API — no core changes.
+//! Feature-gated integration tests for ecosystem coordinate adapters and serde.
 
 #[cfg(any(feature = "geo", feature = "nalgebra", feature = "glam"))]
 use proxi::TransformerBuilder;
