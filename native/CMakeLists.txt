@@ -200,6 +200,12 @@ endif()
 # ---------------- libcurl ----------------
 # Windows: Schannel; macOS: SecureTransport; Linux: local OpenSSL.
 set(CURL_CMAKE_ARGS ${COMMON_ARGS})
+list(APPEND CURL_CMAKE_ARGS
+  -DCURL_DISABLE_LDAP=ON
+  -DCURL_DISABLE_LDAPS=ON
+  -DCURL_USE_LIBPSL=OFF
+  -DCURL_USE_LIBSSH2=OFF
+)
 if(NOT ENABLE_NETWORK)
   set(CURL_CMAKE_ARGS ${CURL_CMAKE_ARGS} -DHTTP_ONLY=ON -DBUILD_CURL_EXE=OFF)
 endif()
