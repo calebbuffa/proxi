@@ -3,7 +3,27 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - build.rs
+      - src/**
+      - tests/**
+      - native/**
+      - .cargo/**
+      - rust-toolchain*
+      - .github/workflows/**
   pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - build.rs
+      - src/**
+      - tests/**
+      - native/**
+      - .cargo/**
+      - rust-toolchain*
+      - .github/workflows/**
   workflow_dispatch:
 
 jobs:

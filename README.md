@@ -45,13 +45,18 @@ for rec in db.crs_search(Some("EPSG"), &proxi::CrsSearch {
 Provisioning order:
 
 1. `PROXI_BUNDLED=1` forces the local superbuild.
-2. `PROJ_DIR` uses an existing PROJ install if it matches.
-3. vcpkg (Windows) / pkg-config (Unix) picks up a system PROJ.
+2. `PROJ_DIR` uses an existing install with `include/proj.h` and `proj.db`.
+3. vcpkg (MSVC) or pkg-config (Unix) picks up a system PROJ.
 4. Otherwise the crate builds everything itself.
 
 The superbuild compiles `zlib -> sqlite -> TLS -> libcurl -> libtiff -> PROJ`
-into a private prefix. Every dependency is pinned in `native/versions.toml`
-with a checksum; archives live in a deterministic cache.
+as static libraries into a private prefix. Every dependency is pinned in
+`native/versions.toml` with a checksum; archives live in a deterministic cache.
+
+System installations are linked as provided by the platform package manager.
+Their enabled PROJ features and transitive dependencies are the system
+administrator's responsibility. Use `PROXI_BUNDLED=1` to require the pinned,
+self-contained dependency graph.
 
 - Cache: `$PROXI_CACHE` (default `$CARGO_HOME/proxi-cache`).
 - Offline: `PROXI_OFFLINE=1` forbids downloads and errors clearly if an
@@ -72,26 +77,35 @@ with a checksum; archives live in a deterministic cache.
 
 ## Runtime data
 
-`proj.db` is built into the private prefix. Data search order:
+The bundled build installs `proj.db` in its private prefix. For a configured
+context, the primary data directory is selected in this order:
 
 1. `TransformerBuilder::data_dir(...)` or `TransformerDefinition::data_dir(...)`
-2. `ContextOptions::data_paths`
-3. `PROJ_DATA`
-4. bundled `prefix/share/proj`
-5. system PROJ data
+2. `PROJ_DATA`
+3. bundled `prefix/share/proj`
+4. PROJ's compiled-in system paths
+
+`ContextOptions::data_paths` and `user_data_dir` are additional search paths;
+they do not replace the selected primary `proj.db` directory.
 
 With `.network_enabled(true)`, the user-writable download directory is created
 and put on the search path so fetched grids can be downloaded and discovered.
 Vertical and datum transformations may require external grids; availability
 depends on the selected PROJ data and network configuration.
 
-## Platform notes
+## Platform Notes
 
-- **Windows (MSVC):** curl uses Schannel; the required system libs
-  (`ws2_32`, `crypt32`, `secur32`, `schannel`, ...) are linked automatically.
-- **macOS:** curl uses SecureTransport; build for one arch
-  (`CMAKE_OSX_ARCHITECTURES`).
-- **Linux:** a pinned local OpenSSL is built so the build is self-contained.
+These details apply when the local superbuild is used. A system PROJ discovered
+through `PROJ_DIR`, vcpkg, or pkg-config uses that installation's configuration.
+
+- **Windows (MSVC):** curl uses Schannel. The static bundle uses the dynamic
+  MSVC runtime, and Cargo receives the required Windows system libraries
+  automatically.
+- **macOS:** curl uses Secure Transport. Cargo links the required Apple
+  frameworks and libc++. Set `CMAKE_OSX_ARCHITECTURES` to forward a target
+  architecture to the bundled CMake build.
+- **Linux:** curl uses a pinned, locally built OpenSSL. The resulting static
+  link also uses the platform C++ runtime and standard system libraries.
 
 ## License
 
