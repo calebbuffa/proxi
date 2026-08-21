@@ -33,8 +33,8 @@ jobs:
           lldb --batch \
             -o "settings set target.env-vars PROXI_BUNDLED_DATA_DIR=$prefix/share/proj" \
             -o 'breakpoint set --name malloc_error_break' \
+            -o 'breakpoint command add -o "bt all" 1' \
             -o 'run operation_group_enumerates_and_promotes_candidate --exact --nocapture' \
-            -o 'bt all' \
             -- "$binary"
       - name: Diagnose Ubuntu operation-group crash
         if: failure() && matrix.os == 'ubuntu-latest'
