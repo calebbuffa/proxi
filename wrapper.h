@@ -1,6 +1,6 @@
 /* proxi bindgen input.
  *
- * Includes the full stable PROJ public API surface so `scripts/regenerate-bindings.sh`
+ * Includes the full stable PROJ public API surface so `scripts/bindings.sh`
  * emits *complete* bindings from the pinned PROJ version:
  *
  *   - proj.h               : core API (context/crs/operation/transform/grid/log/errno
@@ -11,7 +11,7 @@
  *
  * The generated file is committed to `src/bindings.rs`; normal builds do NOT run
  * bindgen (it is a maintenance-time tool, like proj-sys/pyproj). See
- * `scripts/regenerate-bindings.sh`.
+ * `scripts/bindings.sh`.
  */
 #include <proj.h>
 #include <geodesic.h>
