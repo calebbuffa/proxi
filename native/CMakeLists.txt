@@ -327,5 +327,7 @@ configure_file(
 add_custom_target(proxi_manifest ALL
   COMMAND ${CMAKE_COMMAND} -P ${CMAKE_BINARY_DIR}/write-manifest.cmake
   DEPENDS ep_proj
+          ${CMAKE_BINARY_DIR}/write-manifest.cmake
+          ${CMAKE_CURRENT_SOURCE_DIR}/write-manifest.cmake.in
   VERBATIM
 )
