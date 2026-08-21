@@ -34,6 +34,10 @@ use toolchain::ToolchainChoice;
 
 /// Configure Cargo to link a usable PROJ installation.
 fn main() {
+    for variable in ["PROXI_BUNDLED", "PROJ_DIR", "VCPKG_ROOT", "PKG_CONFIG_PATH"] {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
+
     // docs.rs builds in a network-isolated sandbox; rustdoc only needs the
     // crate to type-check as an rlib, not a linked library, so skip the
     // superbuild entirely rather than failing on the first download attempt.
@@ -195,6 +199,13 @@ fn run_superbuild() {
     let install_prefix = env::var_os("PROXI_PREFIX")
         .map(PathBuf::from)
         .unwrap_or_else(|| build_dir.join("prefix"));
+    let manifest_path = install_prefix.join("proxi-native-manifest.json");
+
+    if manifest_path.exists() {
+        emit_superbuild_rerun_directives();
+        manifest::emit_link_directives(&manifest_path);
+        return;
+    }
 
     // Best-available toolchain, always with a fallback that every machine has.
     let toolchain = ToolchainChoice::detect();
@@ -263,7 +274,6 @@ fn run_superbuild() {
     }
 
     // Consume the generated manifest and emit Rust link directives.
-    let manifest_path = install_prefix.join("proxi-native-manifest.json");
     if !manifest_path.exists() {
         panic!(
             "PROXI: superbuild did not produce {}",
@@ -272,6 +282,11 @@ fn run_superbuild() {
     }
     manifest::emit_link_directives(&manifest_path);
 
+    emit_superbuild_rerun_directives();
+}
+
+/// Tell Cargo which build-script and superbuild inputs invalidate the manifest.
+fn emit_superbuild_rerun_directives() {
     println!("cargo:rerun-if-env-changed=PROXI_PREFIX");
     println!("cargo:rerun-if-env-changed=PROXI_CACHE");
     println!("cargo:rerun-if-env-changed=PROXI_OFFLINE");
@@ -282,6 +297,7 @@ fn run_superbuild() {
     println!("cargo:rerun-if-changed=native/manifest.rs");
     println!("cargo:rerun-if-changed=native/CMakeLists.txt");
     println!("cargo:rerun-if-changed=native/sqlite/CMakeLists.txt");
+    println!("cargo:rerun-if-changed=native/proj-cmath-compat.cmake");
     println!("cargo:rerun-if-changed=native/write-manifest.cmake.in");
     println!("cargo:rerun-if-changed=native/build-openssl.cmake.in");
 }
