@@ -39,3 +39,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --verbose
       - run: cargo test --verbose
+      - name: Run angular units serially
+        run: cargo test --test angular_units -- --test-threads=1 --nocapture
