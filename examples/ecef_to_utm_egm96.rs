@@ -1,12 +1,12 @@
 use proxi::{Context, Coord3, GridPolicy, Result, TransformerBuilder};
 
 fn main() -> Result<()> {
-    let context = Context::configured()?;
+    let context = Context::new()?;
+    println!("Data Paths: {:?}", context.data_paths());
 
     // WGS84 ECEF -> UTM zone 33N with the EGM96 geoid height correction.
     let mut transformer = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:32633+5773")
         .always_xy(true)
-        .network_enabled(true)
         .allow_ballpark(false)
         .grid_policy(GridPolicy::DownloadMissing)
         .build()?;

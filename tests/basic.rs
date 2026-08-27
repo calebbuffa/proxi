@@ -7,7 +7,7 @@ use proxi::{
 
 #[test]
 fn geocentric_to_utm_and_back_roundtrips() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     // EPSG:4978 = WGS84 geocentric; EPSG:32633 = WGS84 UTM 33N.
     let mut t = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:32633")
         .build()
@@ -27,7 +27,7 @@ fn geocentric_to_utm_and_back_roundtrips() {
 
 #[test]
 fn batch_soa_roundtrip() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:32633")
         .build()
         .expect("build transformer");
@@ -84,14 +84,14 @@ fn batch_soa_roundtrip() {
 
 #[test]
 fn invalid_crs_is_rejected() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let err = TransformerBuilder::new(&context, "EPSG:4978", "not a real crs").build();
     assert!(err.is_err(), "invalid CRS should fail");
 }
 
 #[test]
 fn always_xy_constructs_and_transforms() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     // always_xy should build without leaking and produce a working transform.
     let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
         .always_xy(true)
@@ -119,7 +119,7 @@ fn always_xy_constructs_and_transforms() {
 
 #[test]
 fn wkt_and_projjson_output() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let c = proxi::Crs::from_user_input(&context, "EPSG:4326").expect("epsg:4326");
     let wkt = c.to_wkt(WktVersion::Wkt1Esri).expect("wkt");
     assert!(
@@ -132,7 +132,7 @@ fn wkt_and_projjson_output() {
 
 #[test]
 fn forward_xyzt_4d() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:4326+3855")
         .build()
         .expect("build 4d");
@@ -148,7 +148,7 @@ fn forward_xyzt_4d() {
 
 #[test]
 fn scalar_matches_soa() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:32633")
         .build()
         .expect("build");
@@ -199,7 +199,7 @@ fn scalar_matches_soa() {
 
 #[test]
 fn xyz_into_preserves_input_and_writes_output() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut transformer = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
         .always_xy(true)
         .build()
@@ -234,7 +234,7 @@ fn xyz_into_preserves_input_and_writes_output() {
 
 #[test]
 fn xyz_transactional_rejects_mismatched_buffers_without_mutation() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut transformer = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
         .build()
         .expect("build transformer");
@@ -282,7 +282,7 @@ fn coord_trait_transforms_user_types_zero_alloc() {
         }
     }
 
-    let context = proxi::Context::configured().expect("configured context");
+    let context = proxi::Context::new().expect("configured context");
     let mut t = proxi::TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857")
         .always_xy(true)
         .build()
@@ -310,7 +310,7 @@ fn coord_trait_transforms_user_types_zero_alloc() {
 
 #[test]
 fn crs_proj_string_round_trip() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let crs = proxi::Crs::from_user_input(&context, "EPSG:4326").expect("create CRS");
     let proj_string = crs.to_proj_string().expect("proj string");
     assert!(
@@ -321,10 +321,8 @@ fn crs_proj_string_round_trip() {
 
 #[test]
 fn invalid_context_path_is_rejected() {
-    let context = Context::configured().expect("context");
-    let result = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857")
-        .context_options(proxi::ContextOptions::default().push_data_path("bad\0path"))
-        .build();
+    let result =
+        proxi::Context::configure(proxi::ContextOptions::default().push_data_path("bad\0path"));
     assert!(matches!(
         result,
         Err(ProxiError::ContextConfiguration { .. })
@@ -333,16 +331,14 @@ fn invalid_context_path_is_rejected() {
 
 #[test]
 fn missing_proj_db_data_dir_fails_fast_with_missing_data() {
-    let context = Context::configured().expect("context");
     // A non-existent data directory (no proj.db) must be rejected with a clear
     // `MissingData` error rather than silently accepted and failing later.
     let nonexistent = std::env::temp_dir().join("proxi-does-not-exist-db");
-    let err = match TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857")
-        .data_dir(&nonexistent)
-        .build()
-    {
-        Ok(_) => panic!("expected Err for missing proj.db"),
-        Err(e) => e,
+    let err = match proxi::Context::configure(
+        proxi::ContextOptions::default().push_data_path(&nonexistent),
+    ) {
+        Ok(_) => panic!("expected missing proj.db error"),
+        Err(error) => error,
     };
     assert!(
         matches!(err, ProxiError::MissingData { .. }),
@@ -356,7 +352,7 @@ fn missing_proj_db_data_dir_fails_fast_with_missing_data() {
 
 #[test]
 fn valid_data_dir_configures_database_path() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     // The configured context should have resolved a real data dir; transform
     // works, proving proj.db is active and the hardened set_database_path's
     // round-trip check passed (configured() would have errored otherwise).
@@ -372,7 +368,7 @@ fn valid_data_dir_configures_database_path() {
 
 #[test]
 fn explicit_pipeline_transform_works() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut transformer = TransformerBuilder::from_pipeline(
         &context,
         "+proj=pipeline +step +proj=axisswap +order=2,1",
@@ -387,7 +383,7 @@ fn explicit_pipeline_transform_works() {
 
 #[test]
 fn bounds_transform_densifies_and_validates() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut transformer = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857")
         .always_xy(true)
         .build()
@@ -410,7 +406,7 @@ fn bounds_transform_densifies_and_validates() {
 
 #[test]
 fn operation_metadata_is_available() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let transformer = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857")
         .always_xy(true)
         .build()
@@ -433,7 +429,7 @@ fn operation_metadata_is_available() {
 
 #[test]
 fn crs_type_and_component_extraction_work() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
 
     // Type queries distinguish CRS kinds.
     let geog = proxi::Crs::from_user_input(&context, "EPSG:4326").expect("geographic");
@@ -498,7 +494,7 @@ fn crs_type_and_component_extraction_work() {
 
 #[test]
 fn crs_metadata_and_equivalence_are_available() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let geographic = proxi::Crs::from_user_input(&context, "EPSG:4326").expect("create CRS");
     let equivalent = proxi::Crs::from_user_input(&context, "EPSG:4326").expect("create CRS");
     let info = geographic.info().expect("CRS metadata");
@@ -530,7 +526,7 @@ fn crs_metadata_and_equivalence_are_available() {
 
 #[test]
 fn crs_database_queries_and_authority_construction_work() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let database = Database::new(&context);
     let crs = database.crs("EPSG", "4326").expect("create EPSG CRS");
     let info = crs.info().expect("CRS info");
@@ -575,7 +571,7 @@ fn crs_database_queries_and_authority_construction_work() {
 
 #[test]
 fn operation_selection_options_build_and_transform() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let definition = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857")
         .always_xy(true)
         .authority("EPSG")
@@ -593,7 +589,7 @@ fn operation_selection_options_build_and_transform() {
 
 #[test]
 fn operation_group_enumerates_and_promotes_candidate() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let group = proxi::TransformerGroupBuilder::new(&context, "EPSG:4326", "EPSG:3857")
         .authority("EPSG")
         .allow_ballpark(false)
@@ -611,7 +607,7 @@ fn operation_group_enumerates_and_promotes_candidate() {
 
 #[test]
 fn three_dimensional_identity_preserves_z() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut transformer = TransformerBuilder::new(&context, "EPSG:4979", "EPSG:4979")
         .build()
         .expect("build 3D identity transformer");
@@ -624,7 +620,7 @@ fn three_dimensional_identity_preserves_z() {
 
 #[test]
 fn vertical_datum_operation_reports_grid_requirements() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let group = proxi::TransformerGroupBuilder::new(&context, "EPSG:4979", "EPSG:4326+5773")
         .allow_ballpark(false)
         .build()
@@ -646,7 +642,7 @@ fn vertical_datum_operation_reports_grid_requirements() {
 
 #[test]
 fn required_grid_policy_rejects_missing_vertical_grid() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let result = TransformerBuilder::new(&context, "EPSG:4979", "EPSG:4326+5773")
         .allow_ballpark(false)
         .grid_policy(proxi::GridPolicy::RequireAvailable)
@@ -661,7 +657,7 @@ fn ecef_to_utm_egm96_download_and_transform() {
         return;
     }
 
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut transformer = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:32633+5773")
         .always_xy(true)
         .network_enabled(true)
@@ -695,7 +691,7 @@ fn ecef_to_utm_egm96_download_and_transform() {
 
 #[test]
 fn wgs84_geodesic_inverse_and_batch_work() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let geod = proxi::Geod::wgs84(&context).expect("create WGS84 geodesic");
     let inverse = geod
         .inverse(0.0, 0.0, 90.0, 0.0)
@@ -773,7 +769,7 @@ fn runtime_version_diagnostics_are_available() {
 
 #[test]
 fn geod_from_proj_string_reads_ellipsoid_from_object() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     // A valid CRS with a known ellipsoid: EPSG:4326 (WGS84). The geodesic built
     // from the PROJ string must use the object's ellipsoid (not a fallback).
     let geod = proxi::Geod::from_proj_string(&context, "EPSG:4326").expect("EPSG:4326 geod");
@@ -800,7 +796,7 @@ fn geod_from_proj_string_reads_ellipsoid_from_object() {
 fn geocentric_to_geographic_expected() {
     // EPSG:4978 (geocentric X,Y,Z) -> EPSG:4326 (lon/lat degrees, ellipsoidal h).
     // A point on the +X axis at the ellipsoid surface => lon=0, lat=0, h=0.
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:4326")
         .build()
         .expect("build");
@@ -814,7 +810,7 @@ fn geocentric_to_geographic_expected() {
 #[test]
 fn geographic_to_geocentric_expected() {
     // Inverse: EPSG:4326 (0,0,0) -> EPSG:4978 => (a,0,0).
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:4978")
         .build()
         .expect("build");
@@ -828,7 +824,7 @@ fn geographic_to_geocentric_expected() {
 #[test]
 fn geographic_to_utm_inverse_recovers() {
     // EPSG:4326 (lon/lat) -> EPSG:32633 UTM: inverse must recover lon/lat.
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
         .build()
         .expect("build");
@@ -843,7 +839,7 @@ fn geographic_to_utm_inverse_recovers() {
 fn projected_with_height_preserves_z() {
     // EPSG:4978 -> EPSG:32633 (3D UTM): the height component should remain
     // finite and near the ellipsoidal height input.
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:32633")
         .build()
         .expect("build");
@@ -856,7 +852,7 @@ fn projected_with_height_preserves_z() {
 
 #[test]
 fn bespoke_geographic_vertical_and_compound_crs_construct() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
 
     // Geographic CRS built inline from datum / ellipsoid / meridian parameters.
     let geog = Crs::geographic(
@@ -897,7 +893,7 @@ fn bespoke_geographic_vertical_and_compound_crs_construct() {
 
 #[test]
 fn bespoke_projected_crs_from_conversion_and_cs() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
 
     // Geographic base from the built-in database (WGS 84).
     let base = Crs::from_authority(&context, "EPSG", "4326").expect("WGS 84");
@@ -920,7 +916,7 @@ fn bespoke_projected_crs_from_conversion_and_cs() {
 
 #[test]
 fn bespoke_utm_and_engineering_crs_construct() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
 
     // UTM conversion + cartesian CS over EPSG:4326.
     let utm_conv = Conversion::utm(&context, 33, true).expect("UTM 33N conversion");
@@ -943,7 +939,7 @@ fn bespoke_utm_and_engineering_crs_construct() {
 
 #[test]
 fn bespoke_geographic_from_datum_and_cs() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let cs = Proj::ellipsoidal_2d_cs(&context, true, "degree", 0.0174532925199433)
         .expect("ellipsoidal 2D CS");
     // Use the horizontal datum of EPSG:4326 as the datum object.
@@ -965,7 +961,7 @@ fn bespoke_geographic_from_datum_and_cs() {
 
 #[test]
 fn wkt_output_options_control_multiline_and_indentation() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let crs = Crs::from_authority(&context, "EPSG", "4326").expect("WGS 84");
 
     // Default (single-line) WKT2:2019.
@@ -1007,7 +1003,7 @@ fn wkt_output_options_control_multiline_and_indentation() {
 
 #[test]
 fn wkt_output_axis_and_simplified_variant_are_applied() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let crs = Crs::from_authority(&context, "EPSG", "4326").expect("WGS 84");
 
     // `OUTPUT_AXIS=ORDER` must be honored by PROJ: the call succeeds and
@@ -1052,7 +1048,7 @@ fn wkt_output_axis_and_simplified_variant_are_applied() {
 
 #[test]
 fn proj_string_version_selects_proj5_vs_proj4() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let crs = Crs::from_authority(&context, "EPSG", "4326").expect("WGS 84");
 
     let proj5 = crs
@@ -1075,7 +1071,7 @@ fn proj_string_version_selects_proj5_vs_proj4() {
 
 #[test]
 fn database_filtered_crs_search_returns_structured_records() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let database = Database::new(&context);
 
     // Search EPSG for projected CRSs (e.g. UTM) — must return typed records
@@ -1110,7 +1106,7 @@ fn database_filtered_crs_search_returns_structured_records() {
 
 #[test]
 fn database_units_and_grid_lookups_work() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let database = Database::new(&context);
 
     // Linear units ("linear" category) from the database.
@@ -1145,7 +1141,7 @@ fn database_units_and_grid_lookups_work() {
 
 #[test]
 fn interleaved_xy_transform_matches_soa() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut interleaved = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
         .always_xy(true)
         .build()
@@ -1190,7 +1186,7 @@ fn interleaved_xy_transform_matches_soa() {
 
 #[test]
 fn completeness_policy_reports_partial_failure() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
         .always_xy(true)
         .build()
@@ -1224,7 +1220,7 @@ fn completeness_policy_reports_partial_failure() {
 
 #[test]
 fn geodesic_line_position_and_arc_mode_work() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let geod = proxi::Geod::wgs84(&context).expect("WGS84");
 
     // Direct distance (metres) over ~90 degrees  of longitude on the equator.
@@ -1274,7 +1270,7 @@ fn geodesic_line_position_and_arc_mode_work() {
 
 #[test]
 fn geodesic_indexed_direct_inverse_and_longitude_unroll() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let geod = proxi::Geod::wgs84(&context).expect("WGS84");
 
     // Indexed inverse returns reduced length / geodesic scales / area + a12.
@@ -1319,7 +1315,7 @@ fn geodesic_indexed_direct_inverse_and_longitude_unroll() {
 
 #[test]
 fn geodesic_streaming_polygon_builder_matches_bulk() {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let geod = proxi::Geod::wgs84(&context).expect("WGS84");
 
     let lons = [0.0, 1.0, 1.0, 0.0];

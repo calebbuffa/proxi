@@ -33,7 +33,7 @@ mod bindings {
     pub(crate) use crate::sys::*;
 }
 
-pub use context::Context;
+pub use context::{Context, ContextDataPaths};
 pub use coord::{Coord, Coord2, Coord3, Coord4, CoordBatch};
 pub use crs::{
     AxisInfo, Conversion, CoordinateSystem, CoordinateSystemBuilder, CoordinateSystemType, Crs,

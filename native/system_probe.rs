@@ -64,6 +64,11 @@ impl SystemProbe for VcpkgProbe {
         if let Ok(lib) = config.find_package(self.package) {
             if let Some(inc) = lib.include_paths.first() {
                 eprintln!("PROXI: using vcpkg {} at {}", self.package, inc.display());
+                let prefix = inc.parent().unwrap_or(inc);
+                let data_dir = prefix.join("share").join("proj");
+                if data_dir.is_dir() {
+                    println!("cargo:data_dir={}", data_dir.display());
+                }
                 println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
                 return true;
             }
@@ -97,6 +102,14 @@ impl SystemProbe for PkgConfigProbe {
                 "PROXI: using system {} via pkg-config: {}",
                 self.package, pkg.version
             );
+            if let Some(lib_dir) = pkg.link_paths.first() {
+                if let Some(prefix) = lib_dir.parent() {
+                    let data_dir = prefix.join("share").join("proj");
+                    if data_dir.is_dir() {
+                        println!("cargo:data_dir={}", data_dir.display());
+                    }
+                }
+            }
             println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
             return true;
         }

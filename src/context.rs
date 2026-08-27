@@ -7,14 +7,123 @@
 use crate::errors::{ProxiError, Result};
 use crate::sys;
 use std::marker::PhantomData;
+use std::path::PathBuf;
 use std::ptr::NonNull;
 
-#[cfg(feature = "network")]
-use std::path::PathBuf;
+/// The PROJ data locations selected for a context.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ContextDataPaths {
+    /// The directory containing the database selected for this context.
+    pub data_dir: Option<std::path::PathBuf>,
+    /// Directories searched by PROJ, in search order.
+    pub search_paths: Vec<std::path::PathBuf>,
+    /// The writable directory used for downloaded grids, when configured.
+    pub user_data_dir: Option<std::path::PathBuf>,
+}
+
+fn resolve_data_dir(options: &crate::options::ContextOptions) -> Result<Option<PathBuf>> {
+    let has_db = |dir: &PathBuf| dir.join("proj.db").is_file();
+
+    if let Some(database_path) = &options.database_path {
+        if database_path.file_name().and_then(|name| name.to_str()) != Some("proj.db")
+            || !database_path.is_file()
+        {
+            return Err(ProxiError::MissingData {
+                message: format!(
+                    "database path {} is not a valid proj.db file",
+                    database_path.display()
+                ),
+            });
+        }
+        return Ok(database_path.parent().map(PathBuf::from));
+    }
+
+    let chosen = options.data_paths.iter().find(|dir| has_db(dir)).cloned();
+    if chosen.is_some() {
+        return Ok(chosen);
+    }
+    if let Ok(dir) = std::env::var("PROJ_DATA") {
+        let dir = PathBuf::from(dir);
+        if has_db(&dir) {
+            return Ok(Some(dir));
+        }
+    }
+    Ok(None)
+}
+
+fn configure_context(
+    context: &Context,
+    options: &crate::options::ContextOptions,
+) -> Result<ContextDataPaths> {
+    #[cfg(not(feature = "network"))]
+    if options.network_enabled || options.ca_bundle_path.is_some() {
+        return Err(ProxiError::Unsupported {
+            feature: "network support is required for network and CA configuration",
+        });
+    }
+
+    let mut data_dir = resolve_data_dir(options)?;
+    let mut search_paths = Vec::new();
+
+    if let Some(user_data_dir) = &options.user_data_dir {
+        if options.network_enabled {
+            std::fs::create_dir_all(user_data_dir).map_err(|error| {
+                ProxiError::ContextConfiguration {
+                    message: format!(
+                        "create PROJ user data directory {}: {error}",
+                        user_data_dir.display()
+                    ),
+                }
+            })?;
+        }
+        search_paths.push(user_data_dir.clone());
+    }
+    if let Some(data_dir) = &data_dir {
+        if !search_paths.contains(data_dir) {
+            search_paths.push(data_dir.clone());
+        }
+    }
+    for path in &options.data_paths {
+        if !search_paths.contains(path) {
+            search_paths.push(path.clone());
+        }
+    }
+    context.set_search_paths(&search_paths)?;
+
+    if let Some(data_dir) = &data_dir {
+        let aux_paths = search_paths
+            .iter()
+            .filter(|path| *path != data_dir)
+            .cloned()
+            .collect::<Vec<_>>();
+        context.set_database_path(&data_dir.join("proj.db"), &aux_paths, &[])?;
+    }
+
+    if data_dir.is_none() {
+        data_dir = context
+            .active_database_path()
+            .and_then(|path| path.parent().map(PathBuf::from));
+    }
+
+    #[cfg(feature = "network")]
+    {
+        context.set_network_enabled(options.network_enabled);
+        if let Some(ca_bundle_path) = &options.ca_bundle_path {
+            context.set_ca_bundle_path(ca_bundle_path)?;
+        }
+    }
+
+    Ok(ContextDataPaths {
+        data_dir,
+        search_paths,
+        user_data_dir: options.user_data_dir.clone(),
+    })
+}
 
 /// Owned, thread-bound PROJ context.
 pub struct Context {
     raw: NonNull<sys::PJ_CONTEXT>,
+    data_paths: ContextDataPaths,
     _not_send_sync: PhantomData<std::rc::Rc<()>>,
 }
 
@@ -27,6 +136,15 @@ impl Context {
     /// [`check_runtime_compatibility`](crate::version::check_runtime_compatibility)
     /// / [`ProjVersion::runtime`](crate::version::ProjVersion::runtime) for granular control.
     pub fn new() -> Result<Self> {
+        let context = Self::unconfigured()?;
+        let paths = configure_context(&context, &crate::options::ContextOptions::default())?;
+        Ok(Self {
+            data_paths: paths,
+            ..context
+        })
+    }
+
+    fn unconfigured() -> Result<Self> {
         // Reject an incompatible runtime up front: the safe wrappers assume the
         // API of the built version.
         crate::version::check_runtime_compatibility()?;
@@ -35,6 +153,7 @@ impl Context {
         NonNull::new(raw)
             .map(|raw| Self {
                 raw,
+                data_paths: ContextDataPaths::default(),
                 _not_send_sync: PhantomData,
             })
             .ok_or_else(|| ProxiError::ContextConfiguration {
@@ -42,12 +161,14 @@ impl Context {
             })
     }
 
-    /// Create a context and apply proxi's default data and runtime settings.
-    pub fn configured() -> Result<Self> {
-        let context = Self::new()?;
-        let options = crate::options::TransformerOptions::default();
-        crate::transform::configure_context(&context, &options)?;
-        Ok(context)
+    /// Create a context and apply explicit data, network, and TLS settings.
+    pub fn configure(options: &crate::options::ContextOptions) -> Result<Self> {
+        let context = Self::unconfigured()?;
+        let paths = configure_context(&context, options)?;
+        Ok(Self {
+            data_paths: paths,
+            ..context
+        })
     }
 
     /// The raw pointer. Only valid while the `Context` is alive.
@@ -55,11 +176,27 @@ impl Context {
         self.raw.as_ptr()
     }
 
-    /// Configure data paths, database, network, and TLS settings for this
-    /// context. The same context should be reused for related CRS/database
-    /// operations on one thread.
-    pub fn configure(&self, options: &crate::options::ContextOptions) -> Result<()> {
-        crate::transform::configure_context_options(self, options)
+    fn active_database_path(&self) -> Option<PathBuf> {
+        let path = unsafe { sys::proj_context_get_database_path(self.as_ptr()) };
+        if path.is_null() {
+            return None;
+        }
+        Some(
+            unsafe { std::ffi::CStr::from_ptr(path) }
+                .to_string_lossy()
+                .into_owned()
+                .into(),
+        )
+    }
+
+    /// Return the effective PROJ data locations selected for this context.
+    pub fn data_paths(&self) -> ContextDataPaths {
+        self.data_paths.clone()
+    }
+
+    /// Return the directory containing the database selected for this context.
+    pub fn data_dir(&self) -> Option<std::path::PathBuf> {
+        self.data_paths.data_dir.clone()
     }
 
     /// Create a PROJ object (CRS or coordinate operation) by name / identifier,

@@ -72,6 +72,9 @@ impl AreaOfInterest {
 #[derive(Clone, Debug, Default)]
 #[non_exhaustive]
 pub struct ContextOptions {
+    /// Explicit path to the `proj.db` file. This takes precedence over all
+    /// environment and compiled-in defaults.
+    pub database_path: Option<std::path::PathBuf>,
     /// Data search paths (directories containing `proj.db` and grids).
     pub data_paths: Vec<std::path::PathBuf>,
     /// User-writable directory for downloaded grids. Defaults to PROJ's
@@ -92,6 +95,12 @@ pub enum GridPolicy {
 }
 
 impl ContextOptions {
+    /// Set the explicit `proj.db` path for this context.
+    pub fn database_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.database_path = Some(path.into());
+        self
+    }
+
     /// Enable/disable network grid downloads (pyproj parity; disabled by default).
     pub fn network_enabled(mut self, enabled: bool) -> Self {
         self.network_enabled = enabled;
@@ -124,10 +133,6 @@ impl ContextOptions {
 pub(crate) struct TransformerOptions {
     pub(crate) always_xy: bool,
     pub(crate) area_of_interest: Option<AreaOfInterest>,
-    /// Optional runtime data directory (e.g. containing `proj.db`).
-    pub(crate) data_dir: Option<std::path::PathBuf>,
-    /// Full context options (network, user data dir, CA bundle, extra paths).
-    pub(crate) context: ContextOptions,
     pub(crate) authority: Option<String>,
     pub(crate) desired_accuracy: Option<f64>,
     pub(crate) allow_ballpark: Option<bool>,

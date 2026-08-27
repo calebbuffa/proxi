@@ -6,7 +6,7 @@ use proxi::Context;
 
 #[test]
 fn url_endpoint_round_trips() {
-    let context = Context::configured().expect("configured context");
+    let context = Context::new().expect("configured context");
     let distinct = "https://cdn.proj.org";
     context
         .set_url_endpoint(distinct)
@@ -20,7 +20,7 @@ fn url_endpoint_round_trips() {
 
 #[test]
 fn grid_cache_controls_do_not_panic_and_set_max_size() {
-    let context = Context::configured().expect("configured context");
+    let context = Context::new().expect("configured context");
     // These are stateful setters with no getter for size/TTL; we assert they
     // don't fault and that clear + enable round-trips do not error.
     context.grid_cache_set_enable(true);
@@ -34,7 +34,7 @@ fn grid_cache_controls_do_not_panic_and_set_max_size() {
 
 #[test]
 fn network_enable_disable_round_trips() {
-    let context = Context::configured().expect("configured context");
+    let context = Context::new().expect("configured context");
     // Network defaults to disabled in proxi.
     context.set_network_enabled(true);
     assert!(context.network_enabled(), "network should be enabled");

@@ -18,11 +18,15 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
+use std::time::{Duration, SystemTime};
 
 #[path = "native/cache.rs"]
 mod cache;
 #[path = "native/manifest.rs"]
 mod manifest;
+#[path = "native/process.rs"]
+mod process;
 #[path = "native/system_probe.rs"]
 mod system_probe;
 #[path = "native/toolchain.rs"]
@@ -45,8 +49,10 @@ fn main() {
         return;
     }
 
-    // Respect explicit "force local superbuild".
-    if env::var("PROXI_BUNDLED").map(|v| v == "1").unwrap_or(false) {
+    // Respect explicit "force local superbuild" and the Cargo `bundled`
+    // feature. The feature must take precedence over every system probe so a
+    // release cannot accidentally link against a developer's PROJ install.
+    if env::var("PROXI_BUNDLED").map(|v| v == "1").unwrap_or(false) || has_flag("bundled") {
         run_superbuild();
         return;
     }
@@ -151,6 +157,10 @@ fn link_from_prefix(prefix: &Path) {
     if inc.is_dir() {
         println!("cargo:include={}", inc.display());
     }
+    let data_dir = prefix.join("share").join("proj");
+    if data_dir.is_dir() {
+        println!("cargo:data_dir={}", data_dir.display());
+    }
 }
 
 /// Run the CMake superbuild and consume `proxi-native-manifest.json`.
@@ -200,11 +210,28 @@ fn run_superbuild() {
         .map(PathBuf::from)
         .unwrap_or_else(|| build_dir.join("prefix"));
     let manifest_path = install_prefix.join("proxi-native-manifest.json");
+    let _cache_lock = acquire_native_build_lock(&cache_builds, &build_dir);
 
-    if manifest_path.exists() {
+    if native_prefix_is_complete(&install_prefix, &manifest_path) {
+        eprintln!(
+            "PROXI: reusing completed native build at {}",
+            install_prefix.display()
+        );
         emit_superbuild_rerun_directives();
         manifest::emit_link_directives(&manifest_path);
         return;
+    }
+    if manifest_path.exists() {
+        eprintln!(
+            "PROXI: cached native prefix is incomplete; resuming build at {}",
+            build_dir.display()
+        );
+        let _ = fs::remove_file(&manifest_path);
+    } else {
+        eprintln!(
+            "PROXI: building native PROJ from scratch at {}",
+            build_dir.display()
+        );
     }
 
     // Best-available toolchain, always with a fallback that every machine has.
@@ -246,8 +273,7 @@ fn run_superbuild() {
         "PROXI: configuring native superbuild in {}",
         build_dir.display()
     );
-    let status = cmd
-        .status()
+    let status = process::run(&mut cmd, "cmake configure")
         .unwrap_or_else(|e| panic!("PROXI: failed to invoke cmake: {e}"));
     if !status.success() {
         panic!("PROXI: cmake configure failed (see output above)");
@@ -266,23 +292,102 @@ fn run_superbuild() {
         "PROXI: building native superbuild with {jobs} parallel job(s) \
          (this compiles zlib, SQLite, TLS, curl, tiff, PROJ)"
     );
-    let status = build
-        .status()
+    let status = process::run(&mut build, "cmake build")
         .unwrap_or_else(|e| panic!("PROXI: failed to invoke cmake --build: {e}"));
     if !status.success() {
         panic!("PROXI: superbuild build failed (see output above)");
     }
 
     // Consume the generated manifest and emit Rust link directives.
-    if !manifest_path.exists() {
+    if !native_prefix_is_complete(&install_prefix, &manifest_path) {
         panic!(
-            "PROXI: superbuild did not produce {}",
-            manifest_path.display()
+            "PROXI: superbuild did not produce a complete native prefix at {}",
+            install_prefix.display()
         );
     }
     manifest::emit_link_directives(&manifest_path);
 
     emit_superbuild_rerun_directives();
+}
+
+/// Prevent concurrent Cargo processes from building the same native cache key.
+/// A lock is reclaimed as soon as its recorded owner process is gone. The age
+/// check is only a fallback for malformed or legacy lock files without a PID.
+fn acquire_native_build_lock(cache_builds: &Path, build_dir: &Path) -> NativeBuildLock {
+    let lock_path = cache_builds.join(format!(
+        "{}.lock",
+        build_dir.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    loop {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+        {
+            Ok(file) => {
+                let _ = serde_json::to_writer(
+                    file,
+                    &serde_json::json!({
+                        "pid": std::process::id(),
+                        "started": format!("{:?}", SystemTime::now()),
+                    }),
+                );
+                return NativeBuildLock { path: lock_path };
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let lock_owner = fs::read_to_string(&lock_path)
+                    .ok()
+                    .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+                    .and_then(|value| value.get("pid").and_then(|pid| pid.as_u64()))
+                    .map(|pid| pid as u32);
+                let owner_is_dead = lock_owner.is_some_and(|pid| !process::is_alive(pid));
+                let legacy_lock_is_stale = lock_owner.is_none() && fs::metadata(&lock_path)
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok())
+                    .and_then(|time| SystemTime::now().duration_since(time).ok())
+                    .is_some_and(|age| age > Duration::from_secs(24 * 60 * 60));
+                if owner_is_dead || legacy_lock_is_stale {
+                    eprintln!(
+                        "PROXI: reclaiming abandoned native build lock {}",
+                        lock_path.display()
+                    );
+                    let _ = fs::remove_file(&lock_path);
+                    continue;
+                }
+                eprintln!(
+                    "PROXI: waiting for another build of {}",
+                    build_dir.display()
+                );
+                thread::sleep(Duration::from_secs(1));
+            }
+            Err(error) => panic!(
+                "PROXI: cannot create native build lock {}: {error}",
+                lock_path.display()
+            ),
+        }
+    }
+}
+
+struct NativeBuildLock {
+    path: PathBuf,
+}
+
+impl Drop for NativeBuildLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+/// Confirm that a cached prefix contains the manifest, database, and PROJ
+/// library before allowing Cargo to reuse it.
+fn native_prefix_is_complete(prefix: &Path, manifest_path: &Path) -> bool {
+    if !manifest_path.is_file() || !prefix.join("share/proj/proj.db").is_file() {
+        return false;
+    }
+    ["lib/proj.lib", "lib/libproj.a", "libproj.lib", "libproj.a"]
+        .iter()
+        .map(|relative| prefix.join(relative))
+        .any(|path| path.is_file())
 }
 
 /// Tell Cargo which build-script and superbuild inputs invalidate the manifest.
@@ -294,6 +399,7 @@ fn emit_superbuild_rerun_directives() {
     println!("cargo:rerun-if-changed=native/cache.rs");
     println!("cargo:rerun-if-changed=native/toolchain.rs");
     println!("cargo:rerun-if-changed=native/system_probe.rs");
+    println!("cargo:rerun-if-changed=native/process.rs");
     println!("cargo:rerun-if-changed=native/manifest.rs");
     println!("cargo:rerun-if-changed=native/CMakeLists.txt");
     println!("cargo:rerun-if-changed=native/sqlite/CMakeLists.txt");

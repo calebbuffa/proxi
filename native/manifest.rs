@@ -48,7 +48,7 @@ pub fn emit_link_directives(manifest_path: &Path) {
     }
     if let Some(data) = m["data_dir"].as_str() {
         if !data.is_empty() {
-            println!("cargo:rustc-env=PROXI_BUNDLED_DATA_DIR={data}");
+            println!("cargo:data_dir={data}");
         }
     }
 }

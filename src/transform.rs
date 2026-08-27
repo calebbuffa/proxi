@@ -6,150 +6,9 @@ use crate::crs::Crs;
 use crate::errors::{ProxiError, Result};
 use crate::ffi;
 pub use crate::options::{AngularUnits, AreaOfInterest, Direction};
-use crate::options::{AreaOfUse, ContextOptions, GridPolicy, TransformerOptions, WktVersion};
+use crate::options::{AreaOfUse, GridPolicy, TransformerOptions, WktVersion};
 use crate::scratch::Scratch;
 use std::marker::PhantomData;
-use std::path::PathBuf;
-
-/// Resolve the PROJ data directory for a new context, validating that the
-/// chosen directory actually contains `proj.db`.
-///
-/// Priority, per the runtime-data contract:
-///   1. An explicit `TransformerOptions.data_dir`.
-///   2. The `PROJ_DATA` environment variable.
-///   3. The bundled data dir recorded at build time (`PROXI_BUNDLED_DATA_DIR`).
-///   4. Nothing — let PROJ use its compiled-in system search paths.
-///
-/// An *explicitly-provided* `data_dir` that lacks `proj.db` is a hard error
-/// (not silently ignored): the user asked for a specific directory and getting
-/// a different one silently would be surprising. Environment-derived paths
-/// that lack the database are skipped with a warning (the env var may point at
-/// a stub or be overridden by the bundled dir).
-fn resolve_data_dir(options: &TransformerOptions) -> Result<Option<PathBuf>> {
-    let has_db = |dir: &PathBuf| -> bool { dir.join("proj.db").exists() };
-
-    if let Some(dir) = &options.data_dir {
-        if !has_db(dir) {
-            return Err(ProxiError::MissingData {
-                message: format!(
-                    "data_dir {} does not contain proj.db (set PROJ_DATA/PROXI_BUNDLED_DATA_DIR or provide a valid data_dir)",
-                    dir.display()
-                ),
-            });
-        }
-        return Ok(Some(dir.clone()));
-    }
-
-    let mut chosen: Option<PathBuf> = None;
-    if let Ok(dir) = std::env::var("PROJ_DATA") {
-        let dir = PathBuf::from(&dir);
-        if has_db(&dir) {
-            chosen = Some(dir);
-        } else {
-            eprintln!(
-                "PROXI: PROJ_DATA={} does not contain proj.db; ignoring",
-                dir.display()
-            );
-        }
-    }
-    if chosen.is_none() {
-        if let Ok(dir) = std::env::var("PROXI_BUNDLED_DATA_DIR") {
-            let dir = PathBuf::from(dir);
-            if has_db(&dir) {
-                chosen = Some(dir);
-            }
-        }
-    }
-    Ok(chosen)
-}
-
-/// Configure a full PROJ context from `ContextOptions` (network, user data
-/// dir, CA bundle, database path, extra search paths). Called before any CRS
-/// or transformer object is created.
-pub(crate) fn configure_context(ctx: &Context, options: &TransformerOptions) -> Result<()> {
-    // Resolve the selected data dir once (errors on an explicit invalid dir).
-    let resolved_data_dir = resolve_data_dir(options)?;
-
-    // 1. Data search paths: explicit data_dir, then ContextOptions.data_paths.
-    let mut paths: Vec<PathBuf> = Vec::new();
-    if let Some(dir) = &resolved_data_dir {
-        paths.push(dir.clone());
-    }
-    if let Some(dir) = &options.context.user_data_dir {
-        // Ensure the download target directory exists and is on the search
-        // path so downloaded grids are discovered.
-        let _ = std::fs::create_dir_all(dir);
-        paths.push(dir.clone());
-    }
-    paths.extend(options.context.data_paths.iter().cloned());
-    if !paths.is_empty() {
-        ctx.set_search_paths(&paths)?;
-    }
-
-    // NOTE: The network/ca-bundle APIs below require PROJ to be built
-    // with the relevant support. When the default build (no `network`/`tiff`
-    // feature) is used, libproj is compiled without CURL/TIFF and those symbols
-    // may be absent or behave differently. We only exercise them when the
-    // corresponding cargo feature is enabled.
-
-    // 2. Database: always configure the selected proj.db when a data dir
-    // resolved, including offline vertical-datum transformations.
-    // `Context::set_database_path` is hardened (it validates `proj.db` exists
-    // and round-trips the active path), so a misconfigured data dir fails fast
-    // here with a clear `MissingData`/`ContextConfiguration` error instead of
-    // surfacing later as a confusing "no database" query failure.
-    if let Some(dir) = &resolved_data_dir {
-        let db = dir.join("proj.db");
-        let aux: Vec<std::path::PathBuf> =
-            paths.iter().filter(|path| *path != dir).cloned().collect();
-        ctx.set_database_path(&db, &aux, &[])?;
-    }
-
-    // 3. Network: disabled by default; opt-in via `network_enabled(true)`.
-    //    Only meaningful when built with the `network` feature.
-    #[cfg(feature = "network")]
-    {
-        if options.context.network_enabled {
-            ctx.set_network_enabled(true);
-        }
-        let effective = ctx.network_enabled();
-        if effective != options.context.network_enabled {
-            eprintln!(
-                "proxi: requested network_enabled={} but effective is {}",
-                options.context.network_enabled, effective
-            );
-        }
-    }
-
-    // 4. User-writable directory (where PROJ stores downloaded grids). This
-    //    MUST be added to the context search paths so grids downloaded into it
-    //    are found afterward (pyproj does the same). Only relevant when
-    //    network/TIFF support is compiled in.
-    #[cfg(feature = "network")]
-    {
-        if let Some(dir) = ctx.user_writable_directory(true) {
-            if !paths.contains(&dir) {
-                paths.push(dir);
-                ctx.set_search_paths(&paths)?;
-            }
-        }
-    }
-
-    // 5. CA bundle for HTTPS grid downloads.
-    #[cfg(feature = "network")]
-    if let Some(ca) = &options.context.ca_bundle_path {
-        ctx.set_ca_bundle_path(ca)?;
-    }
-    Ok(())
-}
-
-pub(crate) fn configure_context_options(ctx: &Context, options: &ContextOptions) -> Result<()> {
-    let transformer_options = TransformerOptions {
-        context: options.clone(),
-        ..TransformerOptions::default()
-    };
-    configure_context(ctx, &transformer_options)
-}
 
 /// A reusable, immutable transformation definition.
 ///
@@ -529,24 +388,6 @@ impl TransformerDefinition {
         self
     }
 
-    /// Set an explicit PROJ data directory (containing `proj.db`, grids).
-    pub fn data_dir(mut self, path: impl Into<PathBuf>) -> Self {
-        self.options.data_dir = Some(path.into());
-        self
-    }
-
-    /// Apply full [`ContextOptions`] (network, user data dir, CA bundle, paths).
-    pub fn context_options(mut self, ctx: ContextOptions) -> Self {
-        self.options.context = ctx;
-        self
-    }
-
-    /// Enable/disable network grid downloads (pyproj parity, off by default).
-    pub fn network_enabled(mut self, enabled: bool) -> Self {
-        self.options.context.network_enabled = enabled;
-        self
-    }
-
     /// Restrict operation selection to an authority such as `EPSG`.
     pub fn authority(mut self, authority: impl Into<String>) -> Self {
         self.options.authority = Some(authority.into());
@@ -580,7 +421,7 @@ impl TransformerDefinition {
                 input: "<pipeline>".to_string(),
                 message: "pipelines do not have a standalone source CRS".to_string(),
             })?;
-        serialize_crs(context, &self.options, source, |crs| crs.to_wkt(version))
+        serialize_crs(context, source, |crs| crs.to_wkt(version))
     }
 
     /// The target CRS definition as WKT, materialized on the caller-provided
@@ -594,7 +435,7 @@ impl TransformerDefinition {
                 input: "<pipeline>".to_string(),
                 message: "pipelines do not have a standalone target CRS".to_string(),
             })?;
-        serialize_crs(context, &self.options, target, |crs| crs.to_wkt(version))
+        serialize_crs(context, target, |crs| crs.to_wkt(version))
     }
 
     /// The source CRS definition as PROJJSON, materialized on the caller-
@@ -607,7 +448,7 @@ impl TransformerDefinition {
                 input: "<pipeline>".to_string(),
                 message: "pipelines do not have a standalone source CRS".to_string(),
             })?;
-        serialize_crs(context, &self.options, source, |crs| crs.to_projjson())
+        serialize_crs(context, source, |crs| crs.to_projjson())
     }
 
     /// The target CRS definition as PROJJSON, materialized on the caller-
@@ -620,7 +461,7 @@ impl TransformerDefinition {
                 input: "<pipeline>".to_string(),
                 message: "pipelines do not have a standalone target CRS".to_string(),
             })?;
-        serialize_crs(context, &self.options, target, |crs| crs.to_projjson())
+        serialize_crs(context, target, |crs| crs.to_projjson())
     }
 
     /// Build a thread-bound [`Transformer`] on the calling thread.
@@ -686,24 +527,6 @@ impl<'context> TransformerBuilder<'context> {
     /// Restrict the area of interest used when selecting an operation.
     pub fn area_of_interest(mut self, area: AreaOfInterest) -> Self {
         self.options.area_of_interest = Some(area);
-        self
-    }
-
-    /// Set an explicit PROJ data directory.
-    pub fn data_dir(mut self, path: impl Into<PathBuf>) -> Self {
-        self.options.data_dir = Some(path.into());
-        self
-    }
-
-    /// Apply full [`ContextOptions`] (network, user data dir, CA bundle, paths).
-    pub fn context_options(mut self, ctx: ContextOptions) -> Self {
-        self.options.context = ctx;
-        self
-    }
-
-    /// Enable/disable network grid downloads (pyproj parity, off by default).
-    pub fn network_enabled(mut self, enabled: bool) -> Self {
-        self.options.context.network_enabled = enabled;
         self
     }
 
@@ -776,8 +599,6 @@ impl<'context> Transformer<'context> {
         pipeline: Option<&str>,
         options: &TransformerOptions,
     ) -> Result<Self> {
-        configure_context(context, options)?;
-
         let area = options
             .area_of_interest
             .as_ref()
@@ -1668,15 +1489,14 @@ fn operation_info_for(obj: &ffi::ProjObj, context: &Context) -> Result<Operation
 
 /// Whether the given PROJ operation, under the configured network policy, can
 /// download the missing grid it requires.
-fn network_can_download(_options: &TransformerOptions) -> bool {
-    // The `network` cargo feature must be enabled, and the context must have
-    // network enabled (handled by the caller checking `options.context`).
+fn network_can_download(context: &Context) -> bool {
     #[cfg(feature = "network")]
     {
-        true
+        context.network_enabled()
     }
     #[cfg(not(feature = "network"))]
     {
+        let _ = context;
         false
     }
 }
@@ -1694,10 +1514,7 @@ fn ensure_grid_policy(
     if missing() == 0 {
         return Ok(());
     }
-    if options.grid_policy == GridPolicy::DownloadMissing
-        && network_can_download(options)
-        && options.context.network_enabled
-    {
+    if options.grid_policy == GridPolicy::DownloadMissing && network_can_download(context) {
         for grid in grids
             .iter()
             .filter(|grid| !grid.is_available() && grid.direct_download)
@@ -1732,11 +1549,9 @@ fn ensure_grid_policy(
 /// responsible for providing/owning a configured context.
 fn serialize_crs<'context, T>(
     context: &'context Context,
-    options: &TransformerOptions,
     input: &str,
     serialize: impl FnOnce(&Crs<'context>) -> Result<T>,
 ) -> Result<T> {
-    configure_context(context, options)?;
     let crs = Crs::from_user_input(context, input)?;
     serialize(&crs)
 }
