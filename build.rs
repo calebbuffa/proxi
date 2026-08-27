@@ -216,6 +216,9 @@ fn run_superbuild() {
         );
         emit_superbuild_rerun_directives();
         manifest::emit_link_directives(&manifest_path);
+        if has_flag("embedded") {
+            emit_embedded_data(&manifest_path);
+        }
         return;
     }
     if manifest_path.exists() {
@@ -301,6 +304,9 @@ fn run_superbuild() {
         );
     }
     manifest::emit_link_directives(&manifest_path);
+    if has_flag("embedded") {
+        emit_embedded_data(&manifest_path);
+    }
 
     emit_superbuild_rerun_directives();
 }
@@ -484,4 +490,97 @@ fn copy_dir_recursive(src: &Path, dest: &Path) {
             });
         }
     }
+}
+
+fn emit_embedded_data(manifest_path: &Path) {
+    let data_dir = manifest_data_dir(manifest_path);
+    if !data_dir.join("proj.db").is_file() {
+        panic!(
+            "PROXI: embedded feature requires proj.db in {}",
+            data_dir.display()
+        );
+    }
+
+    let mut files = Vec::new();
+    collect_embedded_files(&data_dir, &data_dir, &mut files);
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut hasher = Sha256::new();
+    for (relative, absolute) in &files {
+        hasher.update(relative.as_bytes());
+        let bytes = fs::read(absolute)
+            .unwrap_or_else(|e| panic!("cannot read PROJ data file {}: {e}", absolute.display()));
+        hasher.update(&bytes);
+    }
+    let digest = hasher.finalize();
+    let data_hash: String = digest[..16]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+
+    let mut generated = String::new();
+    generated.push_str("pub(crate) const PROJ_VERSION: &str = \"9.4.1\";\n");
+    generated.push_str(&format!(
+        "pub(crate) const DATA_HASH: &str = \"{data_hash}\";\n"
+    ));
+    generated.push_str("pub(crate) const FILES: &[(&str, &[u8])] = &[\n");
+    for (relative, absolute) in &files {
+        generated.push_str("    (");
+        generated.push_str(&rust_string_literal(relative));
+        generated.push_str(", include_bytes!(");
+        generated.push_str(&rust_string_literal(&absolute.to_string_lossy()));
+        generated.push_str(")),\n");
+    }
+    generated.push_str("];\n");
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR set by cargo"));
+    fs::write(out_dir.join("proxi_embedded_data.rs"), generated)
+        .expect("write generated embedded PROJ data module");
+}
+
+fn manifest_data_dir(manifest_path: &Path) -> PathBuf {
+    let text = fs::read_to_string(manifest_path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", manifest_path.display()));
+    let manifest: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("invalid manifest JSON: {e}"));
+    manifest["data_dir"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| panic!("{} has no data_dir", manifest_path.display()))
+}
+
+fn collect_embedded_files(root: &Path, dir: &Path, files: &mut Vec<(String, PathBuf)>) {
+    for entry in fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("cannot read PROJ data dir {}: {e}", dir.display()))
+        .flatten()
+    {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_embedded_files(root, &path, files);
+        } else if path.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            files.push((relative, path));
+        }
+    }
+}
+
+fn rust_string_literal(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
 }

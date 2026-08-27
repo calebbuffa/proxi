@@ -79,3 +79,18 @@ fn missing_explicit_database_is_rejected() {
     };
     assert!(matches!(error, ProxiError::MissingData { .. }));
 }
+
+#[cfg(feature = "embedded")]
+#[test]
+fn context_new_uses_materialized_embedded_data() {
+    let context = Context::new().expect("embedded context");
+    let data_dir = context
+        .data_dir()
+        .expect("embedded context should report data dir");
+    assert!(data_dir.join("proj.db").is_file());
+    assert!(
+        data_dir.join(".proxi-data-hash").is_file(),
+        "expected embedded materialized data dir, got {}",
+        data_dir.display()
+    );
+}

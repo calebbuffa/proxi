@@ -59,6 +59,9 @@ tiff = []
 # Force the local full superbuild (self-provisioning) even if a system PROJ
 # is found.
 bundled = []
+# Embed bundled PROJ runtime data into dependent binaries and extract it
+# automatically for Context::new()/default Context::configure() at runtime.
+embedded = ["bundled"]
 
 # Each enables seamless `Coord` integration for a popular geometry/math crate,
 # plus `serde` (de)serialization for the coordinate types.

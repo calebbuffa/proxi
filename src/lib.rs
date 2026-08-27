@@ -18,6 +18,7 @@ mod context;
 mod coord;
 mod crs;
 mod database;
+mod embedded_data;
 mod errors;
 mod ffi;
 mod geod;

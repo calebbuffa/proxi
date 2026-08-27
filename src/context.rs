@@ -57,6 +57,11 @@ fn resolve_data_dir(options: &crate::options::ContextOptions) -> Result<Option<P
             ),
         });
     }
+    if let Some(dir) = crate::embedded_data::materialize()? {
+        if has_db(&dir) {
+            return Ok(Some(dir));
+        }
+    }
     if let Some(dir) = option_env!("PROXI_DATA_DIR") {
         let dir = PathBuf::from(dir);
         if has_db(&dir) {

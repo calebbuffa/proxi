@@ -74,21 +74,27 @@ used to override it. This prevents a library and database version mismatch.
 - `network` — compile grid-download support.
 - `tiff` — compile GeoTIFF grid support.
 - `bundled` — always build from source.
+- `embedded` — implies `bundled`, embeds the bundled baseline PROJ runtime
+  data into dependent binaries, and materializes it automatically for
+  `Context::new()` at runtime.
 - `geo`, `nalgebra`, `glam`, `serde` — ecosystem adapters (default off). The
   coordinate types implement the `Coord` trait, so you can transform them
   directly; the value types gain serde derives.
 
 ## Runtime data
 
-The bundled build installs `proj.db` in its private prefix. `Context::new()`
-creates a usable context with the build-selected PROJ data. For a configured
-context, the primary database is selected in this order:
+The bundled build installs `proj.db` in its private prefix. With the `embedded`
+feature, that baseline PROJ data is compiled into dependent binaries and
+extracted automatically to a versioned user cache, so applications can ship a
+single executable while still allowing grids to download at runtime. For a
+configured context, the primary database is selected in this order:
 
 1. `ContextOptions::database_path(...)`
 2. A `ContextOptions::data_paths` directory containing `proj.db`
-3. The data directory selected when the linked PROJ installation was built
-4. `PROJ_DATA`, when no build-selected data directory is available
-5. PROJ's compiled-in system paths
+3. The materialized embedded baseline data, when built with `embedded`
+4. The data directory selected when the linked PROJ installation was built
+5. `PROJ_DATA`, when no build-selected data directory is available
+6. PROJ's compiled-in system paths
 
 Create an explicitly configured context with `Context::configure(...)`:
 
