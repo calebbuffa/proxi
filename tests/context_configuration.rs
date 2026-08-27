@@ -30,8 +30,7 @@ fn explicit_database_path_wins_over_search_paths() {
     let options = ContextOptions::default()
         .database_path(first.join("proj.db"))
         .push_data_path(second.clone());
-    let context = Context::configure(&options)
-    .expect("configure context");
+    let context = Context::configure(&options).expect("configure context");
 
     assert_eq!(context.data_dir(), Some(first.clone()));
     assert!(context.data_paths().search_paths.contains(&second));

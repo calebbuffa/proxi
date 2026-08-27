@@ -1252,7 +1252,8 @@ pub(crate) fn trans(obj: &ProjObj, dir: bindings::PJ_DIRECTION, v: [f64; 4]) -> 
     let coord = bindings::PJ_COORD::xyzt(v[0], v[1], v[2], v[3]);
     // SAFETY: `obj.as_ptr()` is a valid `PJ*`.
     let out = unsafe { bindings::proj_trans(obj.as_ptr(), dir, coord) };
-    unsafe { out.v }
+    let values = unsafe { out.v };
+    values
 }
 
 /// Transform a batch in-place via `proj_trans_generic`.
@@ -1339,7 +1340,8 @@ pub(crate) fn trans_bounds(
 /// Whether the operation expects angular (radian) input for the given direction.
 pub(crate) fn angular_input(obj: &ProjObj, dir: bindings::PJ_DIRECTION) -> bool {
     // SAFETY: `obj.as_ptr()` is a valid `PJ*`.
-    unsafe { bindings::proj_angular_input(obj.as_ptr(), dir) != 0 }
+    let result = unsafe { bindings::proj_angular_input(obj.as_ptr(), dir) != 0 };
+    result
 }
 
 /// Whether the operation produces angular (radian) output for the given direction.

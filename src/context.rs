@@ -24,6 +24,14 @@ pub struct ContextDataPaths {
 fn resolve_data_dir(options: &crate::options::ContextOptions) -> Result<Option<PathBuf>> {
     let has_db = |dir: &PathBuf| dir.join("proj.db").is_file();
 
+    for path in &options.data_paths {
+        if std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).is_err() {
+            return Err(ProxiError::ContextConfiguration {
+                message: format!("invalid data path {}: contains NUL", path.display()),
+            });
+        }
+    }
+
     if let Some(database_path) = &options.database_path {
         if database_path.file_name().and_then(|name| name.to_str()) != Some("proj.db")
             || !database_path.is_file()
@@ -38,9 +46,22 @@ fn resolve_data_dir(options: &crate::options::ContextOptions) -> Result<Option<P
         return Ok(database_path.parent().map(PathBuf::from));
     }
 
-    let chosen = options.data_paths.iter().find(|dir| has_db(dir)).cloned();
-    if chosen.is_some() {
-        return Ok(chosen);
+    if !options.data_paths.is_empty() {
+        if let Some(chosen) = options.data_paths.iter().find(|dir| has_db(dir)) {
+            return Ok(Some(chosen.clone()));
+        }
+        return Err(ProxiError::MissingData {
+            message: format!(
+                "none of the configured PROJ data paths contains proj.db: {:?}",
+                options.data_paths
+            ),
+        });
+    }
+    if let Some(dir) = option_env!("PROXI_DATA_DIR") {
+        let dir = PathBuf::from(dir);
+        if has_db(&dir) {
+            return Ok(Some(dir));
+        }
     }
     if let Ok(dir) = std::env::var("PROJ_DATA") {
         let dir = PathBuf::from(dir);
@@ -91,12 +112,13 @@ fn configure_context(
     context.set_search_paths(&search_paths)?;
 
     if let Some(data_dir) = &data_dir {
-        let aux_paths = search_paths
+        let aux_databases = search_paths
             .iter()
             .filter(|path| *path != data_dir)
-            .cloned()
+            .map(|path| path.join("proj.db"))
+            .filter(|path| path.is_file())
             .collect::<Vec<_>>();
-        context.set_database_path(&data_dir.join("proj.db"), &aux_paths, &[])?;
+        context.set_database_path(&data_dir.join("proj.db"), &aux_databases, &[])?;
     }
 
     if data_dir.is_none() {
@@ -136,12 +158,10 @@ impl Context {
     /// [`check_runtime_compatibility`](crate::version::check_runtime_compatibility)
     /// / [`ProjVersion::runtime`](crate::version::ProjVersion::runtime) for granular control.
     pub fn new() -> Result<Self> {
-        let context = Self::unconfigured()?;
+        let mut context = Self::unconfigured()?;
         let paths = configure_context(&context, &crate::options::ContextOptions::default())?;
-        Ok(Self {
-            data_paths: paths,
-            ..context
-        })
+        context.data_paths = paths;
+        Ok(context)
     }
 
     fn unconfigured() -> Result<Self> {
@@ -163,12 +183,10 @@ impl Context {
 
     /// Create a context and apply explicit data, network, and TLS settings.
     pub fn configure(options: &crate::options::ContextOptions) -> Result<Self> {
-        let context = Self::unconfigured()?;
+        let mut context = Self::unconfigured()?;
         let paths = configure_context(&context, options)?;
-        Ok(Self {
-            data_paths: paths,
-            ..context
-        })
+        context.data_paths = paths;
+        Ok(context)
     }
 
     /// The raw pointer. Only valid while the `Context` is alive.
@@ -375,23 +393,6 @@ impl Context {
             });
         }
         Ok(())
-    }
-
-    /// Get the user-writable data directory (used for grid downloads).
-    #[cfg(feature = "network")]
-    pub(crate) fn user_writable_directory(&self, create: bool) -> Option<PathBuf> {
-        // SAFETY: PROJ returns a static string or null.
-        let ptr =
-            unsafe { sys::proj_context_get_user_writable_directory(self.as_ptr(), create as i32) };
-        if ptr.is_null() {
-            None
-        } else {
-            // SAFETY: `ptr` is a NUL-terminated static string.
-            let s = unsafe { std::ffi::CStr::from_ptr(ptr) }
-                .to_string_lossy()
-                .into_owned();
-            Some(PathBuf::from(s))
-        }
     }
 
     /// Enable or disable network grid downloads on this context.

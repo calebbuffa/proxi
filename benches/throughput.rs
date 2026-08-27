@@ -10,7 +10,7 @@ fn transformer<'a>(context: &'a Context) -> proxi::Transformer<'a> {
 }
 
 fn bench_transformer_construction(c: &mut Criterion) {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     c.bench_function("transformer_construction", |b| {
         b.iter(|| {
             let transformer = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:32633")
@@ -22,7 +22,7 @@ fn bench_transformer_construction(c: &mut Criterion) {
 }
 
 fn bench_scalar_reuse(c: &mut Criterion) {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let mut transformer = transformer(&context);
     c.bench_function("scalar_xyz_reuse", |b| {
         b.iter(|| {
@@ -39,7 +39,7 @@ fn bench_soa(c: &mut Criterion) {
     for size in [64usize, 1024, 16_384] {
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &size| {
-            let context = Context::configured().expect("context");
+            let context = Context::new().expect("context");
             let mut transformer = transformer(&context);
             let mut x = vec![6378137.0; size];
             let mut y = vec![1000.0; size];
@@ -74,7 +74,7 @@ fn bench_aos(c: &mut Criterion) {
     for size in [64usize, 1024, 16_384] {
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &size| {
-            let context = Context::configured().expect("context");
+            let context = Context::new().expect("context");
             let mut transformer = transformer(&context);
             let mut coordinates = vec![[6378137.0, 1000.0, 20.0]; size];
             b.iter(|| {
@@ -103,7 +103,7 @@ fn bench_soa_forward(c: &mut Criterion) {
     for size in [64usize, 1024, 16_384, 65_536] {
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &size| {
-            let context = Context::configured().expect("context");
+            let context = Context::new().expect("context");
             let mut transformer = transformer(&context);
             b.iter_batched(
                 || (vec![6378137.0; size], vec![1000.0; size], vec![20.0; size]),
@@ -130,7 +130,7 @@ fn bench_aos_forward(c: &mut Criterion) {
     for size in [64usize, 1024, 16_384, 65_536] {
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &size| {
-            let context = Context::configured().expect("context");
+            let context = Context::new().expect("context");
             let mut transformer = transformer(&context);
             b.iter_batched(
                 || vec![[6378137.0, 1000.0, 20.0]; size],
@@ -151,7 +151,7 @@ fn bench_aos_forward(c: &mut Criterion) {
 }
 
 fn bench_geod(c: &mut Criterion) {
-    let context = Context::configured().expect("context");
+    let context = Context::new().expect("context");
     let geod = Geod::wgs84(&context).expect("create benchmark geod");
     let mut group = c.benchmark_group("geod_inverse");
     for size in [64usize, 1024, 16_384] {
@@ -186,9 +186,9 @@ fn bench_vertical_grid(c: &mut Criterion) {
         eprintln!("Skipping vertical_grid_xyz: set PROXI_BENCH_GRID_DIR to a local grid directory");
         return;
     };
-    let context = Context::configured().expect("context");
+    let options = ContextOptions::default().push_data_path(grid_dir);
+    let context = Context::configure(&options).expect("configured context");
     let mut transformer = TransformerBuilder::new(&context, "EPSG:4979", "EPSG:4326+5773")
-        .context_options(ContextOptions::default().push_data_path(grid_dir))
         .allow_ballpark(false)
         .build()
         .expect("build vertical grid transformer");

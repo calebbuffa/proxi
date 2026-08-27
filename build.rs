@@ -159,6 +159,7 @@ fn link_from_prefix(prefix: &Path) {
     }
     let data_dir = prefix.join("share").join("proj");
     if data_dir.is_dir() {
+        println!("cargo:rustc-env=PROXI_DATA_DIR={}", data_dir.display());
         println!("cargo:data_dir={}", data_dir.display());
     }
 }
@@ -191,15 +192,12 @@ fn run_superbuild() {
         cache_key
     ));
     fs::create_dir_all(&build_dir).expect("create superbuild dir");
+    let _cache_lock = acquire_native_build_lock(&cache_builds, &build_dir);
 
     // CMake permanently binds a build tree to the exact `-S` path it was
-    // configured with. The checkout path varies (a different clone, a
-    // `cargo publish` verification copy, a new crate version's registry
-    // dir) even when `native/`'s content doesn't, which would otherwise force
-    // a wipe-and-recompile every time. Mirroring into a path keyed by the
-    // same content hash gives CMake a stable `-S` target so identical
-    // content always reuses the same build tree, regardless of where the
-    // original checkout lives.
+    // configured with. Mirror into a stable cache path so a checkout move
+    // does not force a new native build; source changes are synchronized into
+    // the mirror and CMake incrementally rebuilds affected projects.
     let mirrored_source_dir = cache_root()
         .unwrap()
         .join("superbuild-src")
@@ -210,7 +208,6 @@ fn run_superbuild() {
         .map(PathBuf::from)
         .unwrap_or_else(|| build_dir.join("prefix"));
     let manifest_path = install_prefix.join("proxi-native-manifest.json");
-    let _cache_lock = acquire_native_build_lock(&cache_builds, &build_dir);
 
     if native_prefix_is_complete(&install_prefix, &manifest_path) {
         eprintln!(
@@ -238,7 +235,6 @@ fn run_superbuild() {
     let toolchain = ToolchainChoice::detect();
     toolchain.reset_build_dir_if_stale(&build_dir, &mirrored_source_dir);
 
-    let cache_root_dir = archives_dir().expect("archives dir");
     let mut cmd = Command::new("cmake");
     cmd.arg("-S").arg(&mirrored_source_dir);
     cmd.arg("-B").arg(&build_dir);
@@ -247,7 +243,6 @@ fn run_superbuild() {
         "-DCMAKE_INSTALL_PREFIX={}",
         install_prefix.display()
     ));
-    cmd.arg(format!("-DPROXI_CACHE_ROOT={}", cache_root_dir.display()));
     cmd.arg(format!(
         "-DPROXI_ARCHIVES_DIR={}",
         archives_dir().expect("archives dir").display()
@@ -341,11 +336,12 @@ fn acquire_native_build_lock(cache_builds: &Path, build_dir: &Path) -> NativeBui
                     .and_then(|value| value.get("pid").and_then(|pid| pid.as_u64()))
                     .map(|pid| pid as u32);
                 let owner_is_dead = lock_owner.is_some_and(|pid| !process::is_alive(pid));
-                let legacy_lock_is_stale = lock_owner.is_none() && fs::metadata(&lock_path)
-                    .ok()
-                    .and_then(|metadata| metadata.modified().ok())
-                    .and_then(|time| SystemTime::now().duration_since(time).ok())
-                    .is_some_and(|age| age > Duration::from_secs(24 * 60 * 60));
+                let legacy_lock_is_stale = lock_owner.is_none()
+                    && fs::metadata(&lock_path)
+                        .ok()
+                        .and_then(|metadata| metadata.modified().ok())
+                        .and_then(|time| SystemTime::now().duration_since(time).ok())
+                        .is_some_and(|age| age > Duration::from_secs(24 * 60 * 60));
                 if owner_is_dead || legacy_lock_is_stale {
                     eprintln!(
                         "PROXI: reclaiming abandoned native build lock {}",
@@ -408,15 +404,25 @@ fn emit_superbuild_rerun_directives() {
     println!("cargo:rerun-if-changed=native/build-openssl.cmake.in");
 }
 
-/// Produce a short stable identity for the native build inputs that CMake
-/// embeds in its cache. Hashed by *content*, not by checkout path, so
-/// installing the same version from a different folder (a fresh `git clone`,
-/// a new `cargo install --path`, etc.) reuses the existing compiled build
-/// tree instead of recompiling the whole native graph from scratch.
+/// Produce a short stable identity for native artifacts. This intentionally
+/// excludes CMake source contents: the stable build tree must be reused so
+/// CMake can rebuild only the external projects affected by a source change.
+/// Pinned dependency versions remain part of the identity because they change
+/// the source graph and cannot safely share installed artifacts.
 fn native_build_cache_key(source_dir: &Path) -> String {
     let mut hasher = Sha256::new();
-    hash_dir_contents(source_dir, source_dir, &mut hasher);
+    let versions_path = source_dir.join("versions.toml");
+    if let Ok(bytes) = fs::read(&versions_path) {
+        hasher.update(&bytes);
+    }
     hasher.update(env::var("TARGET").unwrap_or_default().as_bytes());
+    hasher.update(
+        env::var("CARGO_CFG_TARGET_ENV")
+            .unwrap_or_default()
+            .as_bytes(),
+    );
+    hasher.update(env::var("CC").unwrap_or_default().as_bytes());
+    hasher.update(env::var("CXX").unwrap_or_default().as_bytes());
     hasher.update(if has_flag("network") {
         b"network".as_slice()
     } else {
@@ -437,36 +443,20 @@ fn native_build_cache_key(source_dir: &Path) -> String {
         .collect()
 }
 
-/// Fold every file under `dir` (path relative to `root` + contents) into
-/// `hasher`, in a stable order, so identical `native/` trees hash identically
-/// regardless of where on disk they happen to live.
-fn hash_dir_contents(root: &Path, dir: &Path, hasher: &mut Sha256) {
-    let mut entries: Vec<_> = fs::read_dir(dir)
-        .map(|rd| rd.filter_map(Result::ok).map(|e| e.path()).collect())
-        .unwrap_or_default();
-    entries.sort();
-    for path in entries {
-        if path.is_dir() {
-            hash_dir_contents(root, &path, hasher);
-        } else if let Ok(bytes) = fs::read(&path) {
-            let rel = path.strip_prefix(root).unwrap_or(&path);
-            hasher.update(rel.to_string_lossy().to_lowercase().as_bytes());
-            hasher.update(&bytes);
-        }
-    }
-}
-
 /// Whether a cargo feature flag is enabled.
 fn has_flag(flag: &str) -> bool {
     env::var(format!("CARGO_FEATURE_{}", flag.to_uppercase())).is_ok()
 }
 
-/// Copy `src` into `dest` if `dest` doesn't already exist. `dest` is keyed by
-/// a content hash of `src`, so an existing `dest` is guaranteed (short of a
-/// hash collision) to already hold identical content — never re-copied.
+/// Synchronize the native source tree into the stable CMake source location.
 fn mirror_source_dir(src: &Path, dest: &Path) {
     if dest.exists() {
-        return;
+        fs::remove_dir_all(dest).unwrap_or_else(|e| {
+            panic!(
+                "cannot refresh mirrored superbuild source dir {}: {e}",
+                dest.display()
+            )
+        });
     }
     fs::create_dir_all(dest).expect("create mirrored superbuild source dir");
     copy_dir_recursive(src, dest);

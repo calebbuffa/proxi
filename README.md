@@ -57,6 +57,10 @@ Their enabled PROJ features and transitive dependencies are the system
 administrator's responsibility. Use `PROXI_BUNDLED=1` to require the pinned,
 self-contained dependency graph.
 
+When the bundled build is selected, the matching `proj.db` from that build is
+used by default. An ambient `PROJ_DATA` from another PROJ installation is not
+used to override it. This prevents a library and database version mismatch.
+
 - Cache: `$PROXI_CACHE` (default `$CARGO_HOME/proxi-cache`).
 - Offline: `PROXI_OFFLINE=1` forbids downloads and errors clearly if an
   archive is missing.
@@ -76,16 +80,32 @@ self-contained dependency graph.
 
 ## Runtime data
 
-The bundled build installs `proj.db` in its private prefix. For a configured
-context, the primary data directory is selected in this order:
+The bundled build installs `proj.db` in its private prefix. `Context::new()`
+creates a usable context with the build-selected PROJ data. For a configured
+context, the primary database is selected in this order:
 
-1. `TransformerBuilder::data_dir(...)` or `TransformerDefinition::data_dir(...)`
-2. `PROJ_DATA`
-3. bundled `prefix/share/proj`
-4. PROJ's compiled-in system paths
+1. `ContextOptions::database_path(...)`
+2. A `ContextOptions::data_paths` directory containing `proj.db`
+3. The data directory selected when the linked PROJ installation was built
+4. `PROJ_DATA`, when no build-selected data directory is available
+5. PROJ's compiled-in system paths
 
-`ContextOptions::data_paths` and `user_data_dir` are additional search paths;
-they do not replace the selected primary `proj.db` directory.
+Create an explicitly configured context with `Context::configure(...)`:
+
+```rust
+let ctx = Context::configure(
+  &proxi::ContextOptions::default()
+    .database_path("/opt/share/proj/proj.db")
+    .user_data_dir("/var/cache/my-app/proj")
+    .network_enabled(true),
+)?;
+```
+
+`ContextOptions::data_paths` adds resource search directories and takes
+precedence when one contains `proj.db`. `user_data_dir` is a writable search
+path for downloaded grids; it does not replace the installed baseline
+database. Do not point `PROJ_DATA` at a different PROJ installation when using
+the bundled build.
 
 With `.network_enabled(true)`, the user-writable download directory is created
 and put on the search path so fetched grids can be downloaded and discovered.
