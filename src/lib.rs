@@ -7,7 +7,7 @@
 //! ```ignore
 //! use proxi::{Context, Coord3, TransformerBuilder};
 //!
-//! let context = Context::configured()?;
+//! let context = Context::new()?;
 //! let mut t = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:26986+5773")
 //!     .always_xy(true)
 //!     .build()?;

@@ -6,7 +6,7 @@ use proxi::TransformerBuilder;
 #[cfg(feature = "geo")]
 #[test]
 fn geo_types_transform() {
-    let context = proxi::Context::configured().expect("context");
+    let context = proxi::Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857")
         .always_xy(true)
         .build()
@@ -29,7 +29,7 @@ fn geo_types_transform() {
 #[cfg(feature = "nalgebra")]
 #[test]
 fn nalgebra_types_transform() {
-    let context = proxi::Context::configured().expect("context");
+    let context = proxi::Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857")
         .always_xy(true)
         .build()
@@ -51,7 +51,7 @@ fn nalgebra_types_transform() {
 #[cfg(feature = "glam")]
 #[test]
 fn glam_types_transform() {
-    let context = proxi::Context::configured().expect("context");
+    let context = proxi::Context::new().expect("context");
     let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857")
         .always_xy(true)
         .build()

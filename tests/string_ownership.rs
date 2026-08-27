@@ -12,11 +12,11 @@ fn wkt_projjson_repeat_alloc_free_loop() {
 
     // A bare `proj_context_create()` has no database configured, so EPSG codes
     // cannot resolve. Point it at the bundled data dir (set by `build.rs` via
-    // the `PROXI_BUNDLED_DATA_DIR` env var) so `EPSG:4326` is a real CRS. This
-    // mirrors what the safe `Context::configured()` does.
-    let data_dir = std::env::var("PROXI_BUNDLED_DATA_DIR")
+    // the `PROXI_DATA_DIR` env var) so `EPSG:4326` is a real CRS. This
+    // mirrors what the safe `Context::new()` does.
+    let data_dir = std::env::var("PROXI_DATA_DIR")
         .or_else(|_| std::env::var("PROJ_DATA"))
-        .expect("PROXI_BUNDLED_DATA_DIR or PROJ_DATA must be set by build.rs/configured()");
+        .expect("PROXI_DATA_DIR or PROJ_DATA must be set by build.rs/configured()");
     // `proj_context_set_search_paths` takes a NULL-terminated array of `const
     // char*`. Build a single-element array; the CString the pointer addresses
     // lives for the duration of the call.
