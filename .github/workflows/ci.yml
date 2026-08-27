@@ -38,6 +38,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --verbose
-      - run: cargo test --verbose
       - name: Run angular units serially
         run: cargo test --test angular_units -- --test-threads=1 --nocapture
+      - name: Run full test suite serially
+        run: cargo test --verbose -- --test-threads=1
