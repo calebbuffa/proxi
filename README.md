@@ -13,12 +13,11 @@ No prebuilt binaries are downloaded.
 ```rust
 use proxi::{AngularUnits, Context, Coord3, TransformerBuilder};
 
-let ctx = Context::configured()?;
+let ctx = Context::new()?;
 
 // Geocentric -> projected + vertical (3D).
 let mut t = TransformerBuilder::new(&ctx, "EPSG:4978", "EPSG:26986+5773")
     .always_xy(true)
-    .network_enabled(true)
     .build()?;
 let out = t.forward_xyz(Coord3::new(1113194.9079, -4849539.9594, 3987474.1413));
 

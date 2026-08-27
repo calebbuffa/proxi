@@ -321,8 +321,8 @@ fn crs_proj_string_round_trip() {
 
 #[test]
 fn invalid_context_path_is_rejected() {
-    let result =
-        proxi::Context::configure(proxi::ContextOptions::default().push_data_path("bad\0path"));
+    let options = proxi::ContextOptions::default().push_data_path("bad\0path");
+    let result = proxi::Context::configure(&options);
     assert!(matches!(
         result,
         Err(ProxiError::ContextConfiguration { .. })
@@ -335,7 +335,7 @@ fn missing_proj_db_data_dir_fails_fast_with_missing_data() {
     // `MissingData` error rather than silently accepted and failing later.
     let nonexistent = std::env::temp_dir().join("proxi-does-not-exist-db");
     let err = match proxi::Context::configure(
-        proxi::ContextOptions::default().push_data_path(&nonexistent),
+        &proxi::ContextOptions::default().push_data_path(&nonexistent),
     ) {
         Ok(_) => panic!("expected missing proj.db error"),
         Err(error) => error,
@@ -657,10 +657,10 @@ fn ecef_to_utm_egm96_download_and_transform() {
         return;
     }
 
-    let context = Context::new().expect("context");
+    let options = proxi::ContextOptions::default().network_enabled(true);
+    let context = Context::configure(&options).expect("network-enabled context");
     let mut transformer = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:32633+5773")
         .always_xy(true)
-        .network_enabled(true)
         .allow_ballpark(false)
         .build()
         .expect("build ECEF to UTM+EGM96 transformer");

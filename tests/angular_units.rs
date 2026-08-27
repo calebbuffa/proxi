@@ -17,7 +17,7 @@
 use proxi::{AngularUnits, Context, Coord3, Direction};
 
 fn context() -> Context {
-    Context::configured().expect("configured context")
+    Context::new().expect("configured context")
 }
 
 /// Forward geographic (degrees) -> projected (meters): `Auto` converts degrees
