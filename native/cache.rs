@@ -332,6 +332,9 @@ fn project_root(src: &Path) -> PathBuf {
 /// re-extracted from the verified archive.
 pub fn ensure_source(dep: &NativeDep) -> Result<PathBuf, String> {
     let archive = ensure_archive(dep)?;
+    let sources = sources_dir()?;
+    fs::create_dir_all(&sources)
+        .map_err(|e| format!("cannot create source cache dir {}: {e}", sources.display()))?;
     let src = source_path(dep)?;
     let _lock = acquire_cache_lock(&src.with_extension("extract.lock"))?;
     // Re-check after waiting for another extractor.
