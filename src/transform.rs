@@ -1706,7 +1706,7 @@ fn transform_slices_soa(
     }
 
     ffi::errno_reset(obj);
-    let n_out = ffi::trans_generic(obj, dir, x, y, z, t);
+    let n_out = ffi::trans_generic(obj, dir, x, y, z, t).min(n);
     check_errno(obj, context)?;
     // `proj_trans_generic` returns the number of coordinates successfully
     // transformed; a short count indicates a partial failure.
@@ -1763,7 +1763,7 @@ fn transform_slices_soa_partial(
         }
     }
     ffi::errno_reset(obj);
-    let n_out = ffi::trans_generic(obj, dir, x, y, z, t);
+    let n_out = ffi::trans_generic(obj, dir, x, y, z, t).min(n);
     // PROJ may commit only a prefix. The input unit conversion above applies
     // to the whole slice, so restore the untouched suffix before returning.
     if n_out < n && in_scale != 1.0 {

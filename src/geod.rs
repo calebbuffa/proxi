@@ -845,3 +845,11 @@ impl PolygonBuilder {
         unsafe { sys::geod_polygon_clear(&mut self.poly) };
     }
 }
+
+impl Drop for PolygonBuilder {
+    fn drop(&mut self) {
+        // SAFETY: `poly` was initialized by `geod_polygon_init` and owns any
+        // dynamically allocated polygon vertices.
+        unsafe { sys::geod_polygon_clear(&mut self.poly) };
+    }
+}

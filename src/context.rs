@@ -222,15 +222,20 @@ impl Context {
         self.data_paths.data_dir.clone()
     }
 
-    /// Create a PROJ object (CRS or coordinate operation) by name / identifier,
+    /// Create a CRS by name / identifier,
     /// e.g. "WGS 84" or "UTM zone 33N", via `proj_create_from_name`.
     ///
-    /// Returns `None` if no matching object is found. The `types` slice narrows
-    /// the object kinds searched (empty = all). `approximate` enables fuzzy
-    /// name matching.
+    /// Returns `None` if no matching CRS is found. `approximate` enables fuzzy
+    /// name matching. Restricting the PROJ search to CRS objects avoids
+    /// ambiguous names such as "WGS 84", which may also match an ellipsoid.
     pub fn crs_from_name(&self, name: &str, approximate: bool) -> Option<crate::crs::Crs<'_>> {
-        crate::ffi::create_from_name(self, name, &[], approximate)
-            .map(|obj| crate::crs::Crs::from_obj(self, obj))
+        crate::ffi::create_from_name(
+            self,
+            name,
+            &[crate::bindings::PJ_TYPE_PJ_TYPE_CRS],
+            approximate,
+        )
+        .map(|obj| crate::crs::Crs::from_obj(self, obj))
     }
 
     /// Set the PROJ data search paths on this context.

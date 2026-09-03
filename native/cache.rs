@@ -18,6 +18,9 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
 /// A single pinned native dependency.
 #[derive(Clone, Debug)]
@@ -211,6 +214,7 @@ pub fn ensure_archive(dep: &NativeDep) -> Result<PathBuf, String> {
     fs::create_dir_all(&dir)
         .map_err(|e| format!("cannot create cache dir {}: {e}", dir.display()))?;
     let path = archive_path(dep)?;
+    let _lock = acquire_cache_lock(&path.with_extension("download.lock"))?;
 
     if path.exists() {
         match verify_sha256(&path, &dep.sha256) {
@@ -246,12 +250,13 @@ pub fn ensure_archive(dep: &NativeDep) -> Result<PathBuf, String> {
         ));
     }
 
-    let partial = path.with_extension("partial");
+    let partial = path.with_extension(format!("partial-{}", std::process::id()));
     eprintln!(
         "PROXI: downloading {} {} from {}",
         dep.name, dep.version, dep.url
     );
     download(&dep.url, &partial).map_err(|e| {
+        let _ = fs::remove_file(&partial);
         format!(
             "PROXI: failed to download `{}` from {}: {e}\n\
              \x20 expected sha256: {}",
@@ -259,6 +264,7 @@ pub fn ensure_archive(dep: &NativeDep) -> Result<PathBuf, String> {
         )
     })?;
     verify_sha256(&partial, &dep.sha256).map_err(|e| {
+        let _ = fs::remove_file(&partial);
         format!(
             "PROXI: checksum mismatch for downloaded `{}`: {e}\n\
              \x20 url:      {}\n\
@@ -266,8 +272,10 @@ pub fn ensure_archive(dep: &NativeDep) -> Result<PathBuf, String> {
             dep.name, dep.url, dep.sha256
         )
     })?;
-    fs::rename(&partial, &path)
-        .map_err(|e| format!("cannot move {} into place: {e}", path.display()))?;
+    fs::rename(&partial, &path).map_err(|e| {
+        let _ = fs::remove_file(&partial);
+        format!("cannot move {} into place: {e}", path.display())
+    })?;
     Ok(path)
 }
 
@@ -325,6 +333,22 @@ fn project_root(src: &Path) -> PathBuf {
 pub fn ensure_source(dep: &NativeDep) -> Result<PathBuf, String> {
     let archive = ensure_archive(dep)?;
     let src = source_path(dep)?;
+    let _lock = acquire_cache_lock(&src.with_extension("extract.lock"))?;
+    // Re-check after waiting for another extractor.
+    if src.exists() {
+        let root = project_root(&src);
+        let (primary, secondary) = expected_markers(&dep.name);
+        if primary.iter().chain(secondary.iter()).all(|f| {
+            let path = root.join(f);
+            if f.ends_with('/') {
+                path.is_dir()
+            } else {
+                path.is_file()
+            }
+        }) {
+            return Ok(root);
+        }
+    }
 
     // Check if extraction is already complete (both primary and secondary markers).
     if src.exists() {
@@ -424,10 +448,28 @@ fn download(url: &str, dest: &Path) -> Result<(), String> {
         }
     }
 
+    // Use an installed curl as a fallback for environments requiring the
+    // platform's proxy/TLS configuration.
+    if let Ok(status) = Command::new("curl")
+        .args([
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--output",
+        ])
+        .arg(dest)
+        .arg(url)
+        .status()
+        && status.success()
+    {
+        return Ok(());
+    }
+
     Err(format!(
-        "PROXI: failed `to download {url} to {}\n\
-         \x20 all download methods failed: ureq (built-in), curl, wget, and python.\n\
-         \x20 ensure network connectivity, or install curl/wget/python3.",
+        "PROXI: failed to download {url} to {}\n\
+         \x20 download methods failed: ureq and curl.\n\
+         \x20 ensure network connectivity or configure an HTTP proxy.",
         dest.display()
     ))
 }
@@ -510,5 +552,53 @@ fn extract_archive(archive: &Path, dest: &Path) -> Result<(), String> {
         tar.unpack(dest)
             .map_err(|e| format!("tar unpack failed: {e}"))?;
         Ok(())
+    }
+}
+
+fn acquire_cache_lock(path: &Path) -> Result<CacheLock, String> {
+    for _ in 0..600 {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+        {
+            Ok(_) => {
+                return Ok(CacheLock {
+                    path: path.to_path_buf(),
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let stale = fs::metadata(path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age > Duration::from_secs(24 * 60 * 60));
+                if stale {
+                    let _ = fs::remove_file(path);
+                    continue;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "cannot create cache lock {}: {error}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    Err(format!(
+        "timed out waiting for cache lock {}",
+        path.display()
+    ))
+}
+
+struct CacheLock {
+    path: PathBuf,
+}
+
+impl Drop for CacheLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
     }
 }

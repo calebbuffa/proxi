@@ -92,7 +92,7 @@ pub struct PartialFailure {
 impl PartialFailure {
     /// Number of coordinates that were not transformed (`total - processed`).
     pub fn failed(&self) -> usize {
-        self.total - self.processed
+        self.total.saturating_sub(self.processed)
     }
 }
 

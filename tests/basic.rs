@@ -2,8 +2,17 @@
 
 use proxi::{
     Context, Conversion, Coord2, Coord3, Coord4, CoordBatch, Crs, DEGREE_METRE, Database,
-    Direction, Proj, ProxiError, TransformerBuilder, WktVersion,
+    Direction, PartialFailure, Proj, ProxiError, TransformerBuilder, WktVersion,
 };
+
+#[test]
+fn partial_failure_failed_count_is_safe_for_invalid_counts() {
+    let failure = PartialFailure {
+        processed: 3,
+        total: 2,
+    };
+    assert_eq!(failure.failed(), 0);
+}
 
 #[test]
 fn geocentric_to_utm_and_back_roundtrips() {

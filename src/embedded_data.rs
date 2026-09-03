@@ -2,6 +2,8 @@
 use crate::errors::ProxiError;
 use crate::errors::Result;
 use std::path::PathBuf;
+#[cfg(feature = "embedded")]
+use std::time::Duration;
 
 #[cfg(feature = "embedded")]
 mod generated {
@@ -37,6 +39,13 @@ pub(crate) fn materialize() -> Result<Option<PathBuf>> {
             parent.display()
         ),
     })?;
+    let _lock = acquire_lock(&parent.join(".proxi-data.lock"))?;
+    // Another process may have installed the data while we waited.
+    if data_dir.join("proj.db").is_file()
+        && std::fs::read_to_string(&marker).ok().as_deref() == Some(generated::DATA_HASH)
+    {
+        return Ok(Some(data_dir));
+    }
 
     let temp_dir = parent.join(format!(
         ".extract-{}-{}",
@@ -96,6 +105,49 @@ pub(crate) fn materialize() -> Result<Option<PathBuf>> {
             ),
         }),
     }
+}
+
+#[cfg(feature = "embedded")]
+struct InstallLock {
+    path: PathBuf,
+}
+
+#[cfg(feature = "embedded")]
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+#[cfg(feature = "embedded")]
+fn acquire_lock(path: &std::path::Path) -> Result<InstallLock> {
+    for _ in 0..600 {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+        {
+            Ok(_) => {
+                return Ok(InstallLock {
+                    path: path.to_path_buf(),
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => {
+                return Err(ProxiError::ContextConfiguration {
+                    message: format!("create embedded PROJ data lock {}: {error}", path.display()),
+                });
+            }
+        }
+    }
+    Err(ProxiError::ContextConfiguration {
+        message: format!(
+            "timed out waiting for embedded PROJ data lock {}",
+            path.display()
+        ),
+    })
 }
 
 #[cfg(feature = "embedded")]

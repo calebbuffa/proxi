@@ -131,7 +131,11 @@ pub(crate) fn create_from_name(
             ctx.as_ptr(),
             std::ptr::null(),
             c_name.as_ptr(),
-            types.as_ptr(),
+            if types.is_empty() {
+                std::ptr::null()
+            } else {
+                types.as_ptr()
+            },
             types.len(),
             approximate as i32,
             1, // limitResultCount
@@ -240,6 +244,9 @@ pub(crate) fn database_codes_of_type(
 
 pub(crate) fn database_ellipsoids() -> Vec<crate::database::Ellipsoid> {
     let list = unsafe { bindings::proj_list_ellps() };
+    if list.is_null() {
+        return Vec::new();
+    }
     let mut values = Vec::new();
     let mut index = 0;
     while index < 10000 {
@@ -266,6 +273,9 @@ pub(crate) fn database_units(angular: bool) -> Vec<crate::database::Unit> {
             bindings::proj_list_units()
         }
     };
+    if list.is_null() {
+        return Vec::new();
+    }
     let mut values = Vec::new();
     let mut index = 0;
     while index < 10000 {
@@ -286,6 +296,9 @@ pub(crate) fn database_units(angular: bool) -> Vec<crate::database::Unit> {
 
 pub(crate) fn database_prime_meridians() -> Vec<crate::database::PrimeMeridian> {
     let list = unsafe { bindings::proj_list_prime_meridians() };
+    if list.is_null() {
+        return Vec::new();
+    }
     let mut values = Vec::new();
     let mut index = 0;
     while index < 10000 {
@@ -304,6 +317,9 @@ pub(crate) fn database_prime_meridians() -> Vec<crate::database::PrimeMeridian> 
 
 pub(crate) fn database_operations() -> Vec<crate::database::Operation> {
     let list = unsafe { bindings::proj_list_operations() };
+    if list.is_null() {
+        return Vec::new();
+    }
     let mut values = Vec::new();
     let mut index = 0;
     while index < 10000 {
@@ -1252,8 +1268,7 @@ pub(crate) fn trans(obj: &ProjObj, dir: bindings::PJ_DIRECTION, v: [f64; 4]) -> 
     let coord = bindings::PJ_COORD::xyzt(v[0], v[1], v[2], v[3]);
     // SAFETY: `obj.as_ptr()` is a valid `PJ*`.
     let out = unsafe { bindings::proj_trans(obj.as_ptr(), dir, coord) };
-    let values = unsafe { out.v };
-    values
+    unsafe { out.v }
 }
 
 /// Transform a batch in-place via `proj_trans_generic`.
@@ -1340,8 +1355,7 @@ pub(crate) fn trans_bounds(
 /// Whether the operation expects angular (radian) input for the given direction.
 pub(crate) fn angular_input(obj: &ProjObj, dir: bindings::PJ_DIRECTION) -> bool {
     // SAFETY: `obj.as_ptr()` is a valid `PJ*`.
-    let result = unsafe { bindings::proj_angular_input(obj.as_ptr(), dir) != 0 };
-    result
+    unsafe { bindings::proj_angular_input(obj.as_ptr(), dir) != 0 }
 }
 
 /// Whether the operation produces angular (radian) output for the given direction.
