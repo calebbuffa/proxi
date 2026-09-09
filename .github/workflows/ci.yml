@@ -49,7 +49,4 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-
       - run: cargo build --verbose
-      - name: Run angular units serially
-        run: cargo test --test angular_units -- --test-threads=1 --nocapture
-      - name: Run full test suite serially
-        run: cargo test --verbose -- --test-threads=1
+      - run: cargo test --verbose
