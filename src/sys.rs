@@ -10,7 +10,7 @@
 //! module, so every existing `bindings::*` reference keeps resolving. The small
 //! appendix below provides the flat C-style enum constants PROJ exposes, the
 //! `PJ_COORD` constructor helpers, and the crate's own `proxi_*` C shim
-//! declarations (`native/shim.c`) — all legitimate raw-surface items, not a
+//! declarations (`native/shim.c`) - all legitimate raw-surface items, not a
 //! compatibility layer.
 
 #![allow(non_camel_case_types)]

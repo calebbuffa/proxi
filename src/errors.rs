@@ -94,7 +94,7 @@ impl From<PartialFailure> for ProxiError {
 /// Result of a transform that may have partially failed.
 ///
 /// Default-policy partial failures carry only the processed/total summary (no
-/// per-point indices — computing them is opt-in via `verify_points` and has a
+/// per-point indices - computing them is opt-in via `verify_points` and has a
 /// documented performance cost, per the design correction #6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PartialFailure {

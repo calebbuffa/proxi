@@ -12,7 +12,7 @@ use std::marker::PhantomData;
 
 /// A reusable, immutable transformation definition.
 ///
-/// Stores only serialized CRS strings and options — it is `Send + Sync` and
+/// Stores only serialized CRS strings and options - it is `Send + Sync` and
 /// can be shared across threads (e.g. cloned into each Rayon job). A worker
 /// calls [`TransformerDefinition::build`] to obtain a thread-bound
 /// [`Transformer`] from that thread's own [`Context`].
@@ -690,7 +690,7 @@ impl<'context> Transformer<'context> {
     /// own types: it reads `x`/`y`/`z`/`t` through the [`Coord`] trait and
     /// rebuilds via [`Coord::from_xyzt`], with no allocation and no boxing. The
     /// dimensionality of the coordinate you pass determines the dimensionality
-    /// of the transform — a [`Coord2`](crate::Coord2) reports `z = 0.0` and
+    /// of the transform - a [`Coord2`](crate::Coord2) reports `z = 0.0` and
     /// `t = INFINITY`, which is exactly what PROJ expects for 2D.
     ///
     /// ```no_run
@@ -970,9 +970,9 @@ impl<'context> Transformer<'context> {
     /// buffers and hands them straight to `proj_trans_generic`, so with
     /// [`Atomicity::Partial`] there is no copy and no allocation at all.
     ///
-    /// The dimensionality comes from the batch — build it with
+    /// The dimensionality comes from the batch - build it with
     /// [`CoordBatch::new`] and add [`with_z`](CoordBatch::with_z) /
-    /// [`with_t`](CoordBatch::with_t) as needed — so there is one method rather
+    /// [`with_t`](CoordBatch::with_t) as needed - so there is one method rather
     /// than one per dimension.
     ///
     /// Returns the number of coordinates transformed. Under
@@ -1096,7 +1096,7 @@ pub enum Atomicity {
     All,
     /// Best-effort: the successfully transformed prefix is committed and the
     /// number of transformed coordinates is returned. A short count is *not* an
-    /// error — compare the returned count against the batch length.
+    /// error - compare the returned count against the batch length.
     ///
     /// This is the fastest option: for
     /// [`transform_batch`](Transformer::transform_batch) PROJ writes directly

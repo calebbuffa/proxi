@@ -168,14 +168,14 @@ pub struct WktOptions {
     pub multiline: Option<bool>,
     /// `INDENTATION_WIDTH` (only meaningful when multiline is enabled).
     pub indentation_width: Option<u32>,
-    /// `ALLOW_ELLIPSOIDAL_HEIGHT_AS_VERTICAL_CRS` — accept a
+    /// `ALLOW_ELLIPSOIDAL_HEIGHT_AS_VERTICAL_CRS` - accept a
     /// geographic-3D CRS as a bound ("hub") to build a compound vertical CRS.
     pub allow_ellipsoidal_height_as_vertical_crs: Option<bool>,
-    /// `OUTPUT_AXIS` — one of `"traditional"`, `"authority"`, `"order"`.
+    /// `OUTPUT_AXIS` - one of `"traditional"`, `"authority"`, `"order"`.
     pub output_axis_order: Option<AxisOutputOrder>,
-    /// `OUTPUT_CONVERSION` — whether to output the conversion for projected CRSs.
+    /// `OUTPUT_CONVERSION` - whether to output the conversion for projected CRSs.
     pub output_conversion: Option<bool>,
-    /// `USE_ALWAYS_XY` — force axis order x/y (east/north).
+    /// `USE_ALWAYS_XY` - force axis order x/y (east/north).
     pub use_always_xy: Option<bool>,
 }
 

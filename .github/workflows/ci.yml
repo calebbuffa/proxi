@@ -43,7 +43,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/proxi-cache
+            ~/.cargo/woodshed
             target
           key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'native/versions.toml') }}
           restore-keys: |

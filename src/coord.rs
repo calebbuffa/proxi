@@ -430,7 +430,7 @@ impl<'a> CoordBatch<'a> {
 }
 
 // These bridge the *input/output* coordinate types of popular geospatial /
-// math crates onto the existing `Coord` trait — the transforms themselves
+// math crates onto the existing `Coord` trait - the transforms themselves
 // (Transformer::transform_coord / transform_coords) are unchanged and generic
 // over `Coord`. No core abstraction is touched.
 

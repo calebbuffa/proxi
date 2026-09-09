@@ -19,25 +19,17 @@ glam = { version = "0.33", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 
 [build-dependencies]
-cmake = "0.1"           # used by the `bundled` feature
-pkg-config = "0.3"      # system discovery on Linux/macOS
-vcpkg = "0.2"           # vcpkg discovery on Windows
-sha2 = "0.10"           # bundled checksum verification
-flate2 = "1.0"          # bundled .tar.gz decompression
-tar = "0.4"             # bundled archive extraction
-zip = "7.2"             # bundled .zip extraction
+# Native provisioning: pinned + checksummed sources, a cached build tree,
+# CMake, and system discovery. proxi's dependencies ship .tar.gz except the
+# SQLite amalgamation, which is a .zip.
+woodshed = { version = "0.1", features = [
+    "zip",
+    "cmake",
+    "vcpkg",
+    "pkg-config",
+] }
 serde_json = "1.0"      # parse proxi-native-manifest.json
-toml = "0.9"            # parse native/versions.toml (used by cache.rs if enabled)
-fs4 = "0.13"            # cross-platform advisory cache locks
-serde = { version = "1.0", features = ["derive"] }
-ureq = "3.0"            # pure-Rust HTTP fallback for archive downloads
-ctrlc = "3.4"           # interrupt handling for native build processes
-
-[target.'cfg(unix)'.build-dependencies]
-libc = "0.2"            # POSIX process-group control for build cancellation
-
-[target.'cfg(windows)'.build-dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Threading"] }
+sha2 = "0.10"           # hash embedded PROJ data for cache invalidation
 
 [dev-dependencies]
 criterion = "0.5"

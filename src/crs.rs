@@ -493,7 +493,7 @@ impl<'context> Crs<'context> {
 /// These are owned, context-bound `PJ*` objects. PROJ's composite constructors
 /// (`proj_create_geographic_crs_from_datum`, `proj_create_projected_crs`, ...)
 /// only *read* the datum / coordinate system they are given, so the CS/datum
-/// lives as long as (or longer than) the call — here it is an owned value the
+/// lives as long as (or longer than) the call - here it is an owned value the
 /// caller must keep alive while the CRS is built.
 pub struct Proj<'context> {
     obj: ffi::ProjObj,

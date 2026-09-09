@@ -65,8 +65,8 @@ There is one way to do each thing:
 | A bounds rectangle | `transform_bounds` |
 
 Layout is not part of the method name. `transform_coords` takes any slice whose
-element implements `Coord` — `Coord3`, `(f64, f64, f64)`, interleaved
-`[f64; 3]`, `glam::DVec3`, `geo::Point`, or your own type — and batches the whole
+element implements `Coord` - `Coord3`, `(f64, f64, f64)`, interleaved
+`[f64; 3]`, `glam::DVec3`, `geo::Point`, or your own type - and batches the whole
 slice into a single PROJ call. Reach for `transform_batch` only when your data
 already lives in separate `x`/`y`/`z` columns, which is the one layout PROJ can
 consume with no copy at all.
@@ -79,7 +79,7 @@ a partial PROJ result may be committed to your buffers.
 
 Provisioning order:
 
-1. `PROXI_BUNDLED=1` forces the local superbuild.
+1. The `bundled` feature forces the local superbuild.
 2. `PROJ_DIR` uses an existing install with `include/proj.h` and `proj.db`.
 3. vcpkg (MSVC) or pkg-config (Unix) picks up a system PROJ.
 4. Otherwise the crate builds everything itself.
@@ -90,30 +90,33 @@ as static libraries into a private prefix. Every dependency is pinned in
 
 System installations are linked as provided by the platform package manager.
 Their enabled PROJ features and transitive dependencies are the system
-administrator's responsibility. Use `PROXI_BUNDLED=1` to require the pinned,
-self-contained dependency graph.
+administrator's responsibility. Enable the `bundled` feature to require the
+pinned, self-contained dependency graph.
 
 When the bundled build is selected, the matching `proj.db` from that build is
 used by default. An ambient `PROJ_DATA` from another PROJ installation is not
 used to override it. This prevents a library and database version mismatch.
 
-- Cache: `$PROXI_CACHE` (default `$CARGO_HOME/proxi-cache`).
-- Offline: `PROXI_OFFLINE=1` forbids downloads and errors clearly if an
+Provisioning is handled by [`woodshed`](../woodshed), which also caches the
+native build tree outside `OUT_DIR` so editing `build.rs` does not discard it.
+
+- Cache: `$WOODSHED_CACHE` (default `$CARGO_HOME/woodshed`).
+- Offline: `WOODSHED_OFFLINE=1` forbids downloads and errors clearly if an
   archive is missing.
 
 ### Features
 
-- `default = ["network", "tiff"]` — CURL + TIFF compiled in; network downloads
+- `default = ["network", "tiff"]` - CURL + TIFF compiled in; network downloads
   are disabled until a context opts in.
-- `minimal` — use `--no-default-features --features minimal` for PROJ without
+- `minimal` - use `--no-default-features --features minimal` for PROJ without
   CURL/TIFF (core transforms + local `proj.db`).
-- `network` — compile grid-download support.
-- `tiff` — compile GeoTIFF grid support.
-- `bundled` — always build from source.
-- `embedded` — implies `bundled`, embeds the bundled baseline PROJ runtime
+- `network` - compile grid-download support.
+- `tiff` - compile GeoTIFF grid support.
+- `bundled` - always build from source.
+- `embedded` - implies `bundled`, embeds the bundled baseline PROJ runtime
   data into dependent binaries, and materializes it automatically for
   `Context::new()` at runtime.
-- `geo`, `nalgebra`, `glam`, `serde` — ecosystem adapters (default off). The
+- `geo`, `nalgebra`, `glam`, `serde` - ecosystem adapters (default off). The
   coordinate types implement the `Coord` trait, so you can transform them
   directly; the value types gain serde derives.
 

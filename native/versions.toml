@@ -7,33 +7,46 @@
 # The checksums below were computed from the official release archives.
 # When bumping a dependency, fetch the new archive once, compute
 # its SHA-256, and update BOTH the version string and the checksum together.
+#
+# `markers` prove an extraction finished: name the build-system entry point and
+# a core source file. A tree missing any of them is the debris of an
+# interrupted unpack, and is discarded and extracted again.
 
 [proj]
 version = "9.4.1"
 url = "https://download.osgeo.org/proj/proj-9.4.1.tar.gz"
 sha256 = "ffe20170ee2b952207adf8a195e2141eab12cda181e49fdeb54425d98c7171d7"
+markers = ["CMakeLists.txt", "src/lib_proj.cmake", "src/proj.h", "src/geodesic.c"]
 
 [sqlite]
 version = "3450300"           # SQLite 3.45.3 (amalgamation)
 url = "https://sqlite.org/2024/sqlite-amalgamation-3450300.zip"
 sha256 = "ea170e73e447703e8359308ca2e4366a3ae0c4304a8665896f068c736781c651"
+# The upstream filename embeds the amalgamation number rather than the version,
+# which makes for an unstable cache key; pin a stable one.
+file = "sqlite-3450300.zip"
+markers = ["sqlite3.c", "sqlite3.h", "shell.c", "sqlite3ext.h"]
 
 [zlib]
 version = "1.3.1"
 url = "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
 sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+markers = ["CMakeLists.txt", "zlib.h", "deflate.c", "inflate.c"]
 
 [tiff]
 version = "4.6.0"
 url = "https://download.osgeo.org/libtiff/tiff-4.6.0.tar.gz"
 sha256 = "88b3979e6d5c7e32b50d7ec72fb15af724f6ab2cbf7e10880c360a77e4b5d99a"
+markers = ["CMakeLists.txt", "libtiff/tif_aux.c", "libtiff/tiff.h"]
 
 [curl]
 version = "8.7.1"
 url = "https://curl.se/download/curl-8.7.1.tar.gz"
 sha256 = "f91249c87f68ea00cf27c44fdfa5a78423e41e71b7d408e5901a9896d905c495"
+markers = ["CMakeLists.txt", "lib/easy.c", "include/curl/curl.h"]
 
 [openssl]
 version = "3.0.13"
 url = "https://www.openssl.org/source/openssl-3.0.13.tar.gz"
 sha256 = "88525753f79d3bec27d2fa7c66aa0b92b3aa9498dafd93d7cfa4b3780cdae313"
+markers = ["Configure", "crypto/", "apps/", "test/"]

@@ -27,7 +27,7 @@ pub fn emit_link_directives(manifest_path: &Path) {
         for lib in libs {
             if let Some(s) = lib.as_str() {
                 // Names are already exactly what the linker expects (see
-                // write-manifest.cmake.in) — don't strip lib/.a/.lib here.
+                // write-manifest.cmake.in) - don't strip lib/.a/.lib here.
                 println!("cargo:rustc-link-lib=static={s}");
             }
         }

@@ -1316,7 +1316,7 @@ fn database_filtered_crs_search_returns_structured_records() {
     let context = Context::new().expect("context");
     let database = Database::new(&context);
 
-    // Search EPSG for projected CRSs (e.g. UTM) — must return typed records
+    // Search EPSG for projected CRSs (e.g. UTM) - must return typed records
     // with authority, code, name and bbox.
     let records = database
         .crs_search(
@@ -1492,7 +1492,7 @@ fn geodesic_line_position_and_arc_mode_work() {
     // arc. The full 90 degrees -of-longitude equator path has a12 slightly > 90 degrees  (the
     // central angle of a geodesic differs from its longitude span off the
     // equator/antipodal), so querying exactly the arc our line covers lands
-    // near — but not exactly at — 90 degrees  longitude. We assert the result is the
+    // near - but not exactly at - 90 degrees  longitude. We assert the result is the
     // finite equatorial endpoint (latitude ~0), not an exact longitude.
     let arc_end = line.gen_position(90.0, true, true);
     assert!(

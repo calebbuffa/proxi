@@ -2,8 +2,8 @@
 //!
 //! All `unsafe` calls into `bindings` live in this module. The rest of
 //! `proxi` operates on safe types:
-//! - [`Context`] — owned `PJ_CONTEXT*`.
-//! - [`ProjObj`] — owned `PJ*` bound to a context.
+//! - [`Context`] - owned `PJ_CONTEXT*`.
+//! - [`ProjObj`] - owned `PJ*` bound to a context.
 
 use crate::bindings;
 use crate::context::Context;
@@ -1657,7 +1657,7 @@ pub(crate) fn create_geographic_crs(
     let pm_angular_units = CString::new(pm_angular_units.as_bytes()).ok()?;
     let cs = create_ellipsoidal_2d_cs(ctx, true, "degree", 0.0174532925199433)?;
     // SAFETY: strings and cs live for the call; PROJ returns owned PJ or null
-    // (the `ellipsoidal_cs` argument is *not* consumed — see PROJ docs).
+    // (the `ellipsoidal_cs` argument is *not* consumed - see PROJ docs).
     let ptr = unsafe {
         bindings::proj_create_geographic_crs(
             ctx.as_ptr(),

@@ -3,7 +3,7 @@
 //! PROJ's `geodesic.h` exposes the `geod_geodesic` / `geod_geodesicline` /
 //! `geod_polygon` structs and the `geod_*` functions. Because `proxi::sys`
 //! binds them concretely (they are plain data), we hold the state by value and
-//! call `sys::geod_*` directly — no C shim, no opaque handle, no manual free.
+//! call `sys::geod_*` directly - no C shim, no opaque handle, no manual free.
 
 use crate::context::Context;
 use crate::errors::{ProxiError, Result};
@@ -156,7 +156,7 @@ impl<'context> Geod<'context> {
     /// `proj_get_ellipsoid` + `proj_ellipsoid_get_parameters`, not parsed from
     /// the string. This gives the *effective* ellipsoid PROJ selected (which
     /// may differ from the text for e.g. aliases) and fails clearly if the
-    /// definition has no resolvable ellipsoid — no silent WGS84 fallback.
+    /// definition has no resolvable ellipsoid - no silent WGS84 fallback.
     pub fn from_proj_string(context: &'context Context, definition: &str) -> Result<Self> {
         // Create + validate the object (must be a CRS with an ellipsoid).
         let obj = crate::ffi::create(context, definition)?;

@@ -290,7 +290,7 @@ impl Context {
     /// 1. The `proj.db` file must exist on disk; otherwise a clear
     ///    [`ProxiError::MissingData`] is returned (PROJ would otherwise accept
     ///    the path and fail later when a query runs, which surfaces as a
-    ///    confusing "no database found" — failing fast here is much clearer).
+    ///    confusing "no database found" - failing fast here is much clearer).
     /// 2. After configuring, the active database path is read back via
     ///    `proj_context_get_database_path` and compared to the input, catching
     ///    a silently-ignored configuration.

@@ -9,7 +9,7 @@
 #   - bindgen  (cargo install bindgen-cli)
 #   - libclang (bindgen dependency)
 #   - the pinned PROJ headers. They are found automatically in the local
-#     superbuild cache (<PROXI_CACHE>/builds/proxi-<target>/prefix/include),
+#     superbuild cache (<WOODSHED_CACHE>/builds/proxi-<target>/prefix/include),
 #     or via PROJ_DIR.
 #
 # Examples:
@@ -26,7 +26,7 @@ OUT="${OUT:-src/bindings.rs}"
 if [[ -n "${PROJ_DIR:-}" ]]; then
   INCLUDE_DIR="${PROJ_DIR}/include"
 else
-  CACHE_ROOT="${PROXI_CACHE:-${CARGO_HOME:-$HOME/.cargo}/proxi-cache}"
+  CACHE_ROOT="${WOODSHED_CACHE:-${CARGO_HOME:-$HOME/.cargo}/woodshed}"
   INCLUDE_DIR="$(find "${CACHE_ROOT}/builds" -type f -name proj.h 2>/dev/null | head -n1 | xargs -I{} dirname {})"
 fi
 
