@@ -1,8 +1,9 @@
 //! Basic end-to-end transform tests, exercising the self-provisioned PROJ.
 
 use proxi::{
-    Context, Conversion, Coord2, Coord3, Coord4, CoordBatch, Crs, DEGREE_METRE, Database,
-    Direction, PartialFailure, Proj, ProxiError, TransformerBuilder, WktVersion,
+    AngularUnits, Atomicity, Context, Conversion, Coord2, Coord3, Coord4, CoordBatch, Crs,
+    DEGREE_METRE, Database, Direction, PartialFailure, Proj, ProxiError, TransformerBuilder,
+    WktVersion,
 };
 
 #[test]
@@ -26,9 +27,13 @@ fn geocentric_to_utm_and_back_roundtrips() {
     let a = 6378137.0;
     let geocentric = Coord3::new(a, 0.0, 0.0);
 
-    let utm = t.forward_xyz(geocentric).expect("forward transform");
+    let utm = t
+        .transform(geocentric, Direction::Forward, AngularUnits::Auto)
+        .expect("forward transform");
 
-    let back = t.inverse_xyz(utm).expect("inverse transform");
+    let back = t
+        .transform(utm, Direction::Inverse, AngularUnits::Auto)
+        .expect("inverse transform");
     assert!((back.x - a).abs() < 0.01, "x roundtrip, got {}", back.x);
     assert!(back.y.abs() < 0.01, "y roundtrip, got {}", back.y);
     assert!(back.z.abs() < 0.01, "z roundtrip, got {}", back.z);
@@ -48,21 +53,25 @@ fn batch_soa_roundtrip() {
     let mut ys = orig_ys.clone();
     let mut zs = orig_zs.clone();
 
-    t.transform_xyz_in_place(
-        &mut xs,
-        &mut ys,
-        &mut zs,
+    t.transform_batch(
+        CoordBatch::new(&mut xs, &mut ys)
+            .unwrap()
+            .with_z(&mut zs)
+            .unwrap(),
         Direction::Forward,
         proxi::AngularUnits::Auto,
+        Atomicity::All,
     )
     .expect("forward batch");
 
-    t.transform_xyz_in_place(
-        &mut xs,
-        &mut ys,
-        &mut zs,
+    t.transform_batch(
+        CoordBatch::new(&mut xs, &mut ys)
+            .unwrap()
+            .with_z(&mut zs)
+            .unwrap(),
         Direction::Inverse,
         proxi::AngularUnits::Auto,
+        Atomicity::All,
     )
     .expect("inverse batch");
 
@@ -114,14 +123,22 @@ fn always_xy_constructs_and_transforms() {
             .build()
             .expect("repeated build");
         let p = u
-            .forward_xyz(Coord3::new(0.0, 0.0, 0.0))
+            .transform(
+                Coord3::new(0.0, 0.0, 0.0),
+                Direction::Forward,
+                AngularUnits::Auto,
+            )
             .expect("transform");
         assert!(p.x.is_finite() && p.y.is_finite(), "finite utm, got {p:?}");
     }
 
     // 0 lon, 0 lat -> near UTM origin.
     let p = t
-        .forward_xyz(Coord3::new(0.0, 0.0, 0.0))
+        .transform(
+            Coord3::new(0.0, 0.0, 0.0),
+            Direction::Forward,
+            AngularUnits::Auto,
+        )
         .expect("transform");
     assert!(p.x.is_finite() && p.y.is_finite(), "finite utm, got {p:?}");
 }
@@ -130,7 +147,7 @@ fn always_xy_constructs_and_transforms() {
 fn wkt_and_projjson_output() {
     let context = Context::new().expect("context");
     let c = proxi::Crs::from_user_input(&context, "EPSG:4326").expect("epsg:4326");
-    let wkt = c.to_wkt(WktVersion::Wkt1Esri).expect("wkt");
+    let wkt = c.to_wkt(WktVersion::Wkt1Esri, None).expect("wkt");
     assert!(
         wkt.contains("GEOGCS") || wkt.contains("GEODCRS"),
         "esri wkt: {wkt}"
@@ -147,8 +164,12 @@ fn forward_xyzt_4d() {
         .expect("build 4d");
     // 4D: lon, lat, h, t. Roundtrip should preserve.
     let input = Coord4::new(0.0, 0.0, 10.0, 2020.0);
-    let out = t.forward_xyzt(input).expect("forward 4d");
-    let back = t.inverse_xyzt(out).expect("inverse 4d");
+    let out = t
+        .transform(input, Direction::Forward, AngularUnits::Auto)
+        .expect("forward 4d");
+    let back = t
+        .transform(out, Direction::Inverse, AngularUnits::Auto)
+        .expect("inverse 4d");
     assert!((back.x - input.x).abs() < 1e-6, "x {}", back.x);
     assert!((back.y - input.y).abs() < 1e-6, "y {}", back.y);
     assert!((back.z - input.z).abs() < 1e-3, "z {}", back.z);
@@ -167,20 +188,26 @@ fn scalar_matches_soa() {
 
     let scalars: Vec<Coord3> = (0..3)
         .map(|i| {
-            t.forward_xyz(Coord3::new(xs[i], ys[i], zs[i]))
-                .expect("scalar forward")
+            t.transform(
+                Coord3::new(xs[i], ys[i], zs[i]),
+                Direction::Forward,
+                AngularUnits::Auto,
+            )
+            .expect("scalar forward")
         })
         .collect();
 
     let mut xs2 = xs.clone();
     let mut ys2 = ys.clone();
     let mut zs2 = zs.clone();
-    t.transform_xyz_in_place(
-        &mut xs2,
-        &mut ys2,
-        &mut zs2,
+    t.transform_batch(
+        CoordBatch::new(&mut xs2, &mut ys2)
+            .unwrap()
+            .with_z(&mut zs2)
+            .unwrap(),
         Direction::Forward,
         proxi::AngularUnits::Auto,
+        Atomicity::All,
     )
     .expect("soa forward");
 
@@ -207,7 +234,7 @@ fn scalar_matches_soa() {
 }
 
 #[test]
-fn xyz_into_preserves_input_and_writes_output() {
+fn transforming_into_separate_output_buffers_preserves_input() {
     let context = Context::new().expect("context");
     let mut transformer = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
         .always_xy(true)
@@ -216,20 +243,22 @@ fn xyz_into_preserves_input_and_writes_output() {
     let input_x = [15.0, 15.1];
     let input_y = [0.0, 1.0];
     let input_z = [10.0, 20.0];
-    let mut output_x = [0.0; 2];
-    let mut output_y = [0.0; 2];
-    let mut output_z = [0.0; 2];
+
+    // Transforming into caller-owned outputs is a copy followed by an in-place
+    // batch; the crate does not duplicate the batch API to spell that.
+    let mut output_x = input_x;
+    let mut output_y = input_y;
+    let mut output_z = input_z;
 
     transformer
-        .transform_xyz_into(
-            &input_x,
-            &input_y,
-            &input_z,
-            &mut output_x,
-            &mut output_y,
-            &mut output_z,
+        .transform_batch(
+            CoordBatch::new(&mut output_x, &mut output_y)
+                .unwrap()
+                .with_z(&mut output_z)
+                .unwrap(),
             Direction::Forward,
             proxi::AngularUnits::Auto,
+            Atomicity::All,
         )
         .expect("transform into output");
 
@@ -242,7 +271,7 @@ fn xyz_into_preserves_input_and_writes_output() {
 }
 
 #[test]
-fn xyz_transactional_rejects_mismatched_buffers_without_mutation() {
+fn batch_rejects_mismatched_buffers_without_mutation() {
     let context = Context::new().expect("context");
     let mut transformer = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
         .build()
@@ -250,13 +279,16 @@ fn xyz_transactional_rejects_mismatched_buffers_without_mutation() {
     let mut x = [1.0, 2.0];
     let mut y = [3.0];
     let mut z = [4.0, 5.0];
-    let result = transformer.transform_xyz_transactional(
-        &mut x,
-        &mut y,
-        &mut z,
-        Direction::Forward,
-        proxi::AngularUnits::Auto,
-    );
+    let result = CoordBatch::new(&mut x, &mut y)
+        .and_then(|b| b.with_z(&mut z))
+        .and_then(|batch| {
+            transformer.transform_batch(
+                batch,
+                Direction::Forward,
+                proxi::AngularUnits::Auto,
+                Atomicity::All,
+            )
+        });
     assert!(matches!(result, Err(ProxiError::LengthMismatch { .. })));
     assert_eq!(x, [1.0, 2.0]);
     assert_eq!(y, [3.0]);
@@ -273,6 +305,152 @@ fn mismatched_batch_lengths_rejected() {
 }
 
 #[test]
+fn atomicity_all_and_partial_agree_on_success() {
+    let context = Context::new().expect("context");
+    let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
+        .always_xy(true)
+        .build()
+        .expect("build transformer");
+
+    let source_x = [15.0_f64, 15.1, 14.9];
+    let source_y = [0.0_f64, 1.0, -1.0];
+
+    let (mut ax, mut ay) = (source_x, source_y);
+    let n = t
+        .transform_batch(
+            CoordBatch::new(&mut ax, &mut ay).unwrap(),
+            Direction::Forward,
+            AngularUnits::Auto,
+            Atomicity::All,
+        )
+        .expect("atomic batch");
+    assert_eq!(n, 3, "a fully successful batch reports every coordinate");
+
+    let (mut px, mut py) = (source_x, source_y);
+    let n = t
+        .transform_batch(
+            CoordBatch::new(&mut px, &mut py).unwrap(),
+            Direction::Forward,
+            AngularUnits::Auto,
+            Atomicity::Partial,
+        )
+        .expect("partial batch");
+    assert_eq!(n, 3);
+
+    // The two atomicity modes differ only in failure handling: on success they
+    // must be bit-for-bit identical.
+    assert_eq!(ax, px, "x buffers agree");
+    assert_eq!(ay, py, "y buffers agree");
+}
+
+#[test]
+fn interleaved_matches_soa_across_dimensionalities() {
+    let context = Context::new().expect("context");
+    let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
+        .always_xy(true)
+        .build()
+        .expect("build transformer");
+
+    // The same points expressed as [x, y] and as [x, y, z] must agree on the
+    // horizontal components: dimensionality comes from the array width alone.
+    let mut xy = [[15.0_f64, 0.0], [15.1, 1.0]];
+    let mut xyz = [[15.0_f64, 0.0, 100.0], [15.1, 1.0, 200.0]];
+
+    t.transform_coords(
+        &mut xy,
+        Direction::Forward,
+        AngularUnits::Auto,
+        Atomicity::All,
+    )
+    .expect("xy interleaved");
+    t.transform_coords(
+        &mut xyz,
+        Direction::Forward,
+        AngularUnits::Auto,
+        Atomicity::All,
+    )
+    .expect("xyz interleaved");
+
+    for i in 0..2 {
+        assert!((xy[i][0] - xyz[i][0]).abs() < 1e-9, "x[{i}] agrees");
+        assert!((xy[i][1] - xyz[i][1]).abs() < 1e-9, "y[{i}] agrees");
+    }
+    // A projected height is carried through unchanged.
+    assert_eq!(xyz[0][2], 100.0);
+    assert_eq!(xyz[1][2], 200.0);
+}
+
+#[test]
+fn transform_coords_agrees_across_every_layout() {
+    let context = Context::new().expect("context");
+    let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
+        .always_xy(true)
+        .build()
+        .expect("build transformer");
+
+    // The same two points expressed four ways. Layout is not part of the API
+    // surface, so every one of these must land on the same numbers.
+    let mut as_coord3 = [Coord3::new(15.0, 0.0, 100.0), Coord3::new(15.1, 1.0, 200.0)];
+    let mut as_array = [[15.0_f64, 0.0, 100.0], [15.1, 1.0, 200.0]];
+    let mut as_tuple = [(15.0_f64, 0.0_f64, 100.0_f64), (15.1, 1.0, 200.0)];
+    let (mut xs, mut ys, mut zs) = ([15.0_f64, 15.1], [0.0_f64, 1.0], [100.0_f64, 200.0]);
+
+    for (label, result) in [
+        (
+            "coord3",
+            t.transform_coords(
+                &mut as_coord3,
+                Direction::Forward,
+                AngularUnits::Auto,
+                Atomicity::All,
+            ),
+        ),
+        (
+            "array",
+            t.transform_coords(
+                &mut as_array,
+                Direction::Forward,
+                AngularUnits::Auto,
+                Atomicity::All,
+            ),
+        ),
+        (
+            "tuple",
+            t.transform_coords(
+                &mut as_tuple,
+                Direction::Forward,
+                AngularUnits::Auto,
+                Atomicity::All,
+            ),
+        ),
+    ] {
+        assert_eq!(result.expect(label), 2, "{label} transformed both points");
+    }
+
+    let batch = CoordBatch::new(&mut xs, &mut ys)
+        .expect("batch")
+        .with_z(&mut zs)
+        .expect("with z");
+    t.transform_batch(
+        batch,
+        Direction::Forward,
+        AngularUnits::Auto,
+        Atomicity::All,
+    )
+    .expect("soa");
+
+    for i in 0..2 {
+        assert_eq!(as_coord3[i].x, as_array[i][0], "x[{i}] array vs Coord3");
+        assert_eq!(as_coord3[i].y, as_array[i][1], "y[{i}] array vs Coord3");
+        assert_eq!(as_coord3[i].z, as_array[i][2], "z[{i}] array vs Coord3");
+        assert_eq!(as_coord3[i].x, as_tuple[i].0, "x[{i}] tuple vs Coord3");
+        assert_eq!(as_coord3[i].y, as_tuple[i].1, "y[{i}] tuple vs Coord3");
+        assert_eq!(as_coord3[i].x, xs[i], "x[{i}] SOA vs Coord3");
+        assert_eq!(as_coord3[i].y, ys[i], "y[{i}] SOA vs Coord3");
+    }
+}
+
+#[test]
 fn coord_trait_transforms_user_types_zero_alloc() {
     #[derive(Clone, Copy, Debug, PartialEq)]
     struct LonLat {
@@ -280,6 +458,7 @@ fn coord_trait_transforms_user_types_zero_alloc() {
         lat: f64,
     }
     impl proxi::Coord for LonLat {
+        const DIMS: usize = 2;
         fn x(&self) -> f64 {
             self.lon
         }
@@ -298,7 +477,7 @@ fn coord_trait_transforms_user_types_zero_alloc() {
         .expect("build transformer");
 
     let out = t
-        .transform_coord(
+        .transform(
             LonLat { lon: 0.0, lat: 0.0 },
             Direction::Forward,
             proxi::AngularUnits::Auto,
@@ -308,8 +487,13 @@ fn coord_trait_transforms_user_types_zero_alloc() {
 
     // Bulk path on a slice of custom types.
     let mut points = [LonLat { lon: 0.0, lat: 0.0 }, LonLat { lon: 1.0, lat: 1.0 }];
-    t.transform_coords(&mut points, Direction::Forward, proxi::AngularUnits::Auto)
-        .expect("transform custom coords");
+    t.transform_coords(
+        &mut points,
+        Direction::Forward,
+        proxi::AngularUnits::Auto,
+        Atomicity::All,
+    )
+    .expect("transform custom coords");
     assert!(
         points
             .iter()
@@ -321,7 +505,9 @@ fn coord_trait_transforms_user_types_zero_alloc() {
 fn crs_proj_string_round_trip() {
     let context = Context::new().expect("context");
     let crs = proxi::Crs::from_user_input(&context, "EPSG:4326").expect("create CRS");
-    let proj_string = crs.to_proj_string().expect("proj string");
+    let proj_string = crs
+        .to_proj_string(proxi::ProjStringVersion::Proj5)
+        .expect("proj string");
     assert!(
         proj_string.starts_with("+proj=") || proj_string.contains("+proj="),
         "got: {proj_string}"
@@ -370,7 +556,11 @@ fn valid_data_dir_configures_database_path() {
         .build()
         .expect("build with resolved data dir");
     let p = t
-        .forward_xy((0.0, 0.0).into())
+        .transform(
+            Coord2::new(0.0, 0.0),
+            Direction::Forward,
+            AngularUnits::Auto,
+        )
         .expect("transform with active database");
     assert!(p.x.abs() < 1e-9 && p.y.abs() < 1e-9, "got {p:?}");
 }
@@ -385,7 +575,11 @@ fn explicit_pipeline_transform_works() {
     .build()
     .expect("build pipeline");
     let output = transformer
-        .forward_xy(Coord2::new(10.0, 20.0))
+        .transform(
+            Coord2::new(10.0, 20.0),
+            Direction::Forward,
+            AngularUnits::Auto,
+        )
         .expect("transform pipeline");
     assert_eq!(output, Coord2::new(20.0, 10.0));
 }
@@ -398,7 +592,12 @@ fn bounds_transform_densifies_and_validates() {
         .build()
         .expect("build bounds transformer");
     let bounds = transformer
-        .forward_bounds([-1.0, -1.0, 1.0, 1.0], 8)
+        .transform_bounds(
+            [-1.0, -1.0, 1.0, 1.0],
+            Direction::Forward,
+            AngularUnits::Auto,
+            8,
+        )
         .expect("transform bounds");
     assert!((bounds[0] + 111_319.49).abs() < 1.0, "west: {}", bounds[0]);
     assert!((bounds[2] - 111_319.49).abs() < 1.0, "east: {}", bounds[2]);
@@ -588,10 +787,14 @@ fn operation_selection_options_build_and_transform() {
         .allow_ballpark(false)
         .into_definition();
     let mut transformer = definition
-        .build_for_current_thread(&context)
+        .build(&context)
         .expect("build configured operation");
     let point = transformer
-        .forward_xy(Coord2::new(0.0, 0.0))
+        .transform(
+            Coord2::new(0.0, 0.0),
+            Direction::Forward,
+            AngularUnits::Auto,
+        )
         .expect("transform configured operation");
     assert!(point.x.abs() < 1e-9 && point.y.abs() < 1e-9);
 }
@@ -609,7 +812,11 @@ fn operation_group_enumerates_and_promotes_candidate() {
     assert!(info.description.is_some());
     let mut transformer = group.into_transformer(0).expect("promote candidate");
     let point = transformer
-        .forward_xy(Coord2::new(0.0, 0.0))
+        .transform(
+            Coord2::new(0.0, 0.0),
+            Direction::Forward,
+            AngularUnits::Auto,
+        )
         .expect("transform selected candidate");
     assert!(point.x.abs() < 1e-9 && point.y.abs() < 1e-9);
 }
@@ -621,7 +828,9 @@ fn three_dimensional_identity_preserves_z() {
         .build()
         .expect("build 3D identity transformer");
     let input = Coord3::new(12.5, 48.25, 1234.5);
-    let output = transformer.forward_xyz(input).expect("3D transform");
+    let output = transformer
+        .transform(input, Direction::Forward, AngularUnits::Auto)
+        .expect("3D transform");
     assert!((output.x - input.x).abs() < 1e-12);
     assert!((output.y - input.y).abs() < 1e-12);
     assert!((output.z - input.z).abs() < 1e-9);
@@ -689,7 +898,7 @@ fn ecef_to_utm_egm96_download_and_transform() {
         0.0,
     );
     let utm_egm96 = transformer
-        .forward_xyz(ecef)
+        .transform(ecef, Direction::Forward, AngularUnits::Auto)
         .expect("transform ECEF to UTM+EGM96");
     eprintln!("ECEF {ecef:?} -> UTM+EGM96 {utm_egm96:?}");
 
@@ -720,7 +929,7 @@ fn wgs84_geodesic_inverse_and_batch_work() {
     let mut distances = [0.0; 2];
     let mut forward_azimuths = [0.0; 2];
     let mut reverse_azimuths = [0.0; 2];
-    geod.inverse_batch_into(
+    geod.inverse_batch(
         &first_longitudes,
         &first_latitudes,
         &second_longitudes,
@@ -747,7 +956,7 @@ fn wgs84_geodesic_inverse_and_batch_work() {
 
     let mut intermediate_longitudes = [0.0; 2];
     let mut intermediate_latitudes = [0.0; 2];
-    geod.npts_into(
+    geod.npts(
         0.0,
         0.0,
         90.0,
@@ -810,7 +1019,13 @@ fn geocentric_to_geographic_expected() {
         .build()
         .expect("build");
     let a = 6378137.0;
-    let p = t.forward_xyz(Coord3::new(a, 0.0, 0.0)).expect("forward");
+    let p = t
+        .transform(
+            Coord3::new(a, 0.0, 0.0),
+            Direction::Forward,
+            AngularUnits::Auto,
+        )
+        .expect("forward");
     assert!(p.x.abs() < 1e-6, "lon ~0 got {}", p.x);
     assert!(p.y.abs() < 1e-6, "lat ~0 got {}", p.y);
     assert!(p.z.abs() < 1e-6, "h ~0 got {}", p.z);
@@ -824,7 +1039,13 @@ fn geographic_to_geocentric_expected() {
         .build()
         .expect("build");
     let a = 6378137.0;
-    let p = t.forward_xyz(Coord3::new(0.0, 0.0, 0.0)).expect("forward");
+    let p = t
+        .transform(
+            Coord3::new(0.0, 0.0, 0.0),
+            Direction::Forward,
+            AngularUnits::Auto,
+        )
+        .expect("forward");
     assert!((p.x - a).abs() < 1e-3, "X ~a got {}", p.x);
     assert!(p.y.abs() < 1e-3, "Y ~0 got {}", p.y);
     assert!(p.z.abs() < 1e-3, "Z ~0 got {}", p.z);
@@ -837,8 +1058,16 @@ fn geographic_to_utm_inverse_recovers() {
     let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:32633")
         .build()
         .expect("build");
-    let p = t.forward_xyz(Coord3::new(0.0, 0.0, 0.0)).expect("forward");
-    let back = t.inverse_xyz(p).expect("inverse");
+    let p = t
+        .transform(
+            Coord3::new(0.0, 0.0, 0.0),
+            Direction::Forward,
+            AngularUnits::Auto,
+        )
+        .expect("forward");
+    let back = t
+        .transform(p, Direction::Inverse, AngularUnits::Auto)
+        .expect("inverse");
     assert!((back.x - 0.0).abs() < 1e-6, "lon back {}", back.x);
     assert!((back.y - 0.0).abs() < 1e-6, "lat back {}", back.y);
     assert!(back.z.abs() < 1e-3, "h back {}", back.z);
@@ -854,7 +1083,11 @@ fn projected_with_height_preserves_z() {
         .expect("build");
     let a = 6378137.0;
     let p = t
-        .forward_xyz(Coord3::new(a + 100.0, 0.0, 0.0))
+        .transform(
+            Coord3::new(a + 100.0, 0.0, 0.0),
+            Direction::Forward,
+            AngularUnits::Auto,
+        )
         .expect("forward");
     assert!(p.z.is_finite(), "height finite got {}", p.z);
 }
@@ -975,7 +1208,7 @@ fn wkt_output_options_control_multiline_and_indentation() {
 
     // Default (single-line) WKT2:2019.
     let single = crs
-        .to_wkt_with_options(
+        .to_wkt(
             proxi::WktVersion::Wkt2_2019,
             Some(&proxi::WktOptions {
                 multiline: Some(false),
@@ -991,7 +1224,7 @@ fn wkt_output_options_control_multiline_and_indentation() {
 
     // Multiline with indentation.
     let multiline = crs
-        .to_wkt_with_options(
+        .to_wkt(
             proxi::WktVersion::Wkt2_2019,
             Some(&proxi::WktOptions {
                 multiline: Some(true),
@@ -1021,7 +1254,7 @@ fn wkt_output_axis_and_simplified_variant_are_applied() {
     // ensemble WKT omits the explicit `CS[...]` node, so we validate the
     // option was accepted by checking the output is complete WKT).
     let ordered = crs
-        .to_wkt_with_options(
+        .to_wkt(
             proxi::WktVersion::Wkt2_2019,
             Some(&proxi::WktOptions {
                 output_axis_order: Some(proxi::AxisOutputOrder::Order),
@@ -1043,7 +1276,7 @@ fn wkt_output_axis_and_simplified_variant_are_applied() {
     // geographic ensemble CRS, but includes the explicit `CS[...]` + `AXIS`
     // nodes that the full (non-simplified) ensemble form omits.
     let simplified = crs
-        .to_wkt(proxi::WktVersion::Wkt2_2019Simplified)
+        .to_wkt(proxi::WktVersion::Wkt2_2019Simplified, None)
         .expect("simplified WKT2:2019");
     assert!(
         simplified.contains("GEOGCRS") || simplified.contains("GEODCRS"),
@@ -1061,7 +1294,7 @@ fn proj_string_version_selects_proj5_vs_proj4() {
     let crs = Crs::from_authority(&context, "EPSG", "4326").expect("WGS 84");
 
     let proj5 = crs
-        .to_proj_string_with_version(proxi::ProjStringVersion::Proj5)
+        .to_proj_string(proxi::ProjStringVersion::Proj5)
         .expect("proj5 string");
     assert!(
         proj5.contains("+proj="),
@@ -1070,7 +1303,7 @@ fn proj_string_version_selects_proj5_vs_proj4() {
 
     // Legacy proj.4 syntax also resolves (WGS84 latlong).
     let proj4 = crs
-        .to_proj_string_with_version(proxi::ProjStringVersion::Proj4)
+        .to_proj_string(proxi::ProjStringVersion::Proj4)
         .expect("proj4 string");
     assert!(
         proj4.contains("+proj=longlat") || proj4.contains("+proj=latlong"),
@@ -1163,10 +1396,11 @@ fn interleaved_xy_transform_matches_soa() {
     // Interleaved [x, y] points (degrees).
     let mut coords = [[0.0, 0.0], [15.0, 0.0], [-15.0, 0.0]];
     let processed = interleaved
-        .transform_xy_interleaved_in_place(
+        .transform_coords(
             &mut coords,
             Direction::Forward,
             proxi::AngularUnits::Auto,
+            Atomicity::Partial,
         )
         .expect("interleaved transform");
     assert_eq!(processed, coords.len());
@@ -1174,11 +1408,11 @@ fn interleaved_xy_transform_matches_soa() {
     // SOA reference for the same points.
     let mut xs = [0.0_f64, 15.0, -15.0];
     let mut ys = [0.0_f64, 0.0, 0.0];
-    soa.transform_xy_in_place(
-        &mut xs,
-        &mut ys,
+    soa.transform_batch(
+        CoordBatch::new(&mut xs, &mut ys).unwrap(),
         Direction::Forward,
         proxi::AngularUnits::Auto,
+        Atomicity::All,
     )
     .expect("soa transform");
 
@@ -1210,13 +1444,14 @@ fn completeness_policy_reports_partial_failure() {
     // The first non-finite point is at index 1, so only the prefix [0..1] is
     // transformed; the partial-failure summary reports processed=1, total=3.
     let first = coords;
-    match t.transform_xyz_complete(&mut coords, Direction::Forward, proxi::AngularUnits::Auto) {
+    match t.transform_coords_finite(&mut coords, Direction::Forward, proxi::AngularUnits::Auto) {
         Ok(n) => panic!("expected partial failure, got Ok({n})"),
-        Err(f) => {
+        Err(ProxiError::Partial(f)) => {
             assert_eq!(f.processed, 1, "processed prefix");
             assert_eq!(f.total, 3, "total");
             assert_eq!(f.failed(), 2, "failed count");
         }
+        Err(other) => panic!("expected a partial failure, got {other:?}"),
     }
     // The NaN point's output must be untouched (it was not sent to PROJ).
     assert!(coords[1][0].is_nan() && coords[1][1] == 0.0);
@@ -1284,7 +1519,7 @@ fn geodesic_indexed_direct_inverse_and_longitude_unroll() {
 
     // Indexed inverse returns reduced length / geodesic scales / area + a12.
     let inv = geod
-        .inverse_indexed(0.0, 0.0, 90.0, 0.0)
+        .inverse_extended(0.0, 0.0, 90.0, 0.0)
         .expect("indexed inverse");
     assert!(inv.distance_meters > 0.0);
     assert!(inv.a12.is_finite() && inv.a12 > 0.0);
@@ -1295,7 +1530,7 @@ fn geodesic_indexed_direct_inverse_and_longitude_unroll() {
     // Indexed direct (distance mode) must land on the same endpoint; its
     // reported distance matches the inverse distance.
     let dir = geod
-        .direct_indexed(0.0, 0.0, 90.0, inv.distance_meters, false, false)
+        .direct_extended(0.0, 0.0, 90.0, inv.distance_meters, false, false)
         .expect("indexed direct");
     assert!(
         (dir.longitude_degree - 90.0).abs() < 1e-9,

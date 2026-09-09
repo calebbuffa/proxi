@@ -74,6 +74,21 @@ pub enum ProxiError {
     /// An interior NUL byte was found in a string passed to PROJ.
     #[error("string contains interior NUL byte: {0}")]
     Nul(#[from] NulError),
+    /// A batch transform committed only a prefix of the batch.
+    ///
+    /// PROJ transformed the first `processed` coordinates and stopped. Whether
+    /// those coordinates were written back to the caller's buffers depends on
+    /// the [`Atomicity`](crate::Atomicity) requested: under
+    /// `Atomicity::Partial` the prefix is committed, under `Atomicity::All`
+    /// the buffers are left untouched.
+    #[error("only {} of {} coordinates were transformed (PROJ stopped early)", .0.processed, .0.total)]
+    Partial(PartialFailure),
+}
+
+impl From<PartialFailure> for ProxiError {
+    fn from(failure: PartialFailure) -> Self {
+        ProxiError::Partial(failure)
+    }
 }
 
 /// Result of a transform that may have partially failed.

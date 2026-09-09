@@ -1,3 +1,5 @@
+use proxi::AngularUnits;
+use proxi::Direction;
 use proxi::{Context, Coord3, GridPolicy, Result, TransformerBuilder};
 
 fn main() -> Result<()> {
@@ -38,7 +40,7 @@ fn main() -> Result<()> {
         (prime_vertical_radius * (1.0 - eccentricity_squared) + ellipsoidal_height_meters)
             * latitude_radians.sin(),
     );
-    let utm_egm96 = transformer.forward_xyz(ecef)?;
+    let utm_egm96 = transformer.transform(ecef, Direction::Forward, AngularUnits::Auto)?;
 
     println!("ECEF:      {ecef:?}");
     println!("UTM+EGM96: {utm_egm96:?}");

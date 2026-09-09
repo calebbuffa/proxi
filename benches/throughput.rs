@@ -2,6 +2,7 @@ use criterion::{
     BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
 };
 use proxi::{AngularUnits, Context, ContextOptions, Coord3, Direction, Geod, TransformerBuilder};
+use proxi::{Atomicity, CoordBatch};
 
 fn transformer<'a>(context: &'a Context) -> proxi::Transformer<'a> {
     TransformerBuilder::new(context, "EPSG:4978", "EPSG:32633")
@@ -27,7 +28,11 @@ fn bench_scalar_reuse(c: &mut Criterion) {
     c.bench_function("scalar_xyz_reuse", |b| {
         b.iter(|| {
             let result = transformer
-                .forward_xyz(black_box(Coord3::new(6378137.0, 1000.0, 20.0)))
+                .transform(
+                    black_box(Coord3::new(6378137.0, 1000.0, 20.0)),
+                    Direction::Forward,
+                    AngularUnits::Auto,
+                )
                 .expect("scalar transform");
             black_box(result);
         });
@@ -46,21 +51,25 @@ fn bench_soa(c: &mut Criterion) {
             let mut z = vec![20.0; size];
             b.iter(|| {
                 transformer
-                    .transform_xyz_in_place(
-                        black_box(&mut x),
-                        black_box(&mut y),
-                        black_box(&mut z),
+                    .transform_batch(
+                        CoordBatch::new(black_box(&mut x), black_box(&mut y))
+                            .unwrap()
+                            .with_z(black_box(&mut z))
+                            .unwrap(),
                         Direction::Forward,
                         AngularUnits::Auto,
+                        Atomicity::Partial,
                     )
                     .expect("soa forward");
                 transformer
-                    .transform_xyz_in_place(
-                        black_box(&mut x),
-                        black_box(&mut y),
-                        black_box(&mut z),
+                    .transform_batch(
+                        CoordBatch::new(black_box(&mut x), black_box(&mut y))
+                            .unwrap()
+                            .with_z(black_box(&mut z))
+                            .unwrap(),
                         Direction::Inverse,
                         AngularUnits::Auto,
+                        Atomicity::Partial,
                     )
                     .expect("soa inverse");
             });
@@ -79,17 +88,19 @@ fn bench_aos(c: &mut Criterion) {
             let mut coordinates = vec![[6378137.0, 1000.0, 20.0]; size];
             b.iter(|| {
                 transformer
-                    .transform_xyz_aos_in_place(
+                    .transform_coords(
                         black_box(&mut coordinates),
                         Direction::Forward,
                         AngularUnits::Auto,
+                        Atomicity::Partial,
                     )
                     .expect("aos forward");
                 transformer
-                    .transform_xyz_aos_in_place(
+                    .transform_coords(
                         black_box(&mut coordinates),
                         Direction::Inverse,
                         AngularUnits::Auto,
+                        Atomicity::Partial,
                     )
                     .expect("aos inverse");
             });
@@ -109,12 +120,14 @@ fn bench_soa_forward(c: &mut Criterion) {
                 || (vec![6378137.0; size], vec![1000.0; size], vec![20.0; size]),
                 |(mut x, mut y, mut z)| {
                     transformer
-                        .transform_xyz_in_place(
-                            black_box(&mut x),
-                            black_box(&mut y),
-                            black_box(&mut z),
+                        .transform_batch(
+                            CoordBatch::new(black_box(&mut x), black_box(&mut y))
+                                .unwrap()
+                                .with_z(black_box(&mut z))
+                                .unwrap(),
                             Direction::Forward,
                             AngularUnits::Auto,
+                            Atomicity::Partial,
                         )
                         .expect("soa forward");
                 },
@@ -136,10 +149,11 @@ fn bench_aos_forward(c: &mut Criterion) {
                 || vec![[6378137.0, 1000.0, 20.0]; size],
                 |mut coordinates| {
                     transformer
-                        .transform_xyz_aos_in_place(
+                        .transform_coords(
                             black_box(&mut coordinates),
                             Direction::Forward,
                             AngularUnits::Auto,
+                            Atomicity::Partial,
                         )
                         .expect("aos forward");
                 },
@@ -165,7 +179,7 @@ fn bench_geod(c: &mut Criterion) {
             let mut forward_azimuths = vec![0.0; size];
             let mut reverse_azimuths = vec![0.0; size];
             b.iter(|| {
-                geod.inverse_batch_into(
+                geod.inverse_batch(
                     black_box(&first_longitudes),
                     black_box(&first_latitudes),
                     black_box(&second_longitudes),
@@ -206,12 +220,14 @@ fn bench_vertical_grid(c: &mut Criterion) {
     group.bench_function("forward", |b| {
         b.iter(|| {
             transformer
-                .transform_xyz_in_place(
-                    black_box(&mut x),
-                    black_box(&mut y),
-                    black_box(&mut z),
+                .transform_batch(
+                    CoordBatch::new(black_box(&mut x), black_box(&mut y))
+                        .unwrap()
+                        .with_z(black_box(&mut z))
+                        .unwrap(),
                     Direction::Forward,
                     AngularUnits::Auto,
+                    Atomicity::Partial,
                 )
                 .expect("vertical grid transform");
         });

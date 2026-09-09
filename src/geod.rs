@@ -24,7 +24,7 @@ pub struct GeodesicInverse {
 
 /// Extended inverse result (the `geninverse` output).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct GeodesicInverseIndexed {
+pub struct GeodesicInverseExtended {
     pub distance_meters: f64,
     pub forward_azimuth_degree: f64,
     pub reverse_azimuth_degree: f64,
@@ -50,7 +50,7 @@ pub struct GeodesicDirect {
 
 /// Extended direct result (the `gendirect` output).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct GeodesicDirectIndexed {
+pub struct GeodesicDirectExtended {
     pub longitude_degree: f64,
     pub latitude_degree: f64,
     pub reverse_azimuth_degree: f64,
@@ -225,13 +225,13 @@ impl<'context> Geod<'context> {
 
     /// Extended inverse: additionally returns reduced length, geodesic scales,
     /// area and the central angle `a12` (via `geod_geninverse`).
-    pub fn inverse_indexed(
+    pub fn inverse_extended(
         &self,
         first_longitude_degree: f64,
         first_latitude_degree: f64,
         second_longitude_degree: f64,
         second_latitude_degree: f64,
-    ) -> Result<GeodesicInverseIndexed> {
+    ) -> Result<GeodesicInverseExtended> {
         let mut s12 = 0.0;
         let mut azi1 = 0.0;
         let mut azi2 = 0.0;
@@ -256,7 +256,7 @@ impl<'context> Geod<'context> {
                 &mut s12area,
             )
         };
-        Ok(GeodesicInverseIndexed {
+        Ok(GeodesicInverseExtended {
             distance_meters: s12,
             forward_azimuth_degree: azi1,
             reverse_azimuth_degree: azi2,
@@ -304,7 +304,7 @@ impl<'context> Geod<'context> {
     /// geodesic scales and area (via `geod_gendirect`). `arcmode` interprets
     /// `distance_or_arc_degree` as an arc angle in degrees instead of metres;
     /// `longitude_unroll` keeps longitudes monotonic along the geodesic.
-    pub fn direct_indexed(
+    pub fn direct_extended(
         &self,
         longitude_degree: f64,
         latitude_degree: f64,
@@ -312,7 +312,7 @@ impl<'context> Geod<'context> {
         distance_or_arc_degree: f64,
         arcmode: bool,
         longitude_unroll: bool,
-    ) -> Result<GeodesicDirectIndexed> {
+    ) -> Result<GeodesicDirectExtended> {
         let mut flags = 0u32;
         if arcmode {
             flags |= sys::geod_flags_GEOD_ARCMODE as u32;
@@ -347,7 +347,7 @@ impl<'context> Geod<'context> {
                 &mut s12area,
             );
         }
-        Ok(GeodesicDirectIndexed {
+        Ok(GeodesicDirectExtended {
             longitude_degree: lon2,
             latitude_degree: lat2,
             reverse_azimuth_degree: azi2,
@@ -525,7 +525,7 @@ impl<'context> Geod<'context> {
 
     /// Write `longitudes_degree.len()` intermediate points between two points.
     /// Endpoints are excluded, matching pyproj's `Geod.npts` behavior.
-    pub fn npts_into(
+    pub fn npts(
         &self,
         first_longitude_degree: f64,
         first_latitude_degree: f64,
@@ -582,7 +582,7 @@ impl<'context> Geod<'context> {
 
     /// Solve inverse geodesics for parallel borrowed slices without allocation.
     #[allow(clippy::too_many_arguments)]
-    pub fn inverse_batch_into(
+    pub fn inverse_batch(
         &self,
         first_longitudes_degree: &[f64],
         first_latitudes_degree: &[f64],

@@ -11,7 +11,7 @@
 //! let mut t = TransformerBuilder::new(&context, "EPSG:4978", "EPSG:26986+5773")
 //!     .always_xy(true)
 //!     .build()?;
-//! let out = t.forward_xyz(Coord3::new(1113194.9079327357, -4849539.959443408, 3987474.1413001378))?;
+//! let out = t.transform(Coord3::new(1113194.9079327357, -4849539.959443408, 3987474.1413001378), Direction::Forward, AngularUnits::Auto)?;
 //! ```
 
 mod context;
@@ -47,7 +47,7 @@ pub use database::{
 };
 pub use errors::{PartialFailure, ProxiError, Result};
 pub use geod::{
-    Geod, GeodesicDirect, GeodesicDirectIndexed, GeodesicInverse, GeodesicInverseIndexed,
+    Geod, GeodesicDirect, GeodesicDirectExtended, GeodesicInverse, GeodesicInverseExtended,
     GeodesicPolygon, Line, LineCaps, LinePosition, PolygonBuilder,
 };
 pub use options::{
@@ -55,9 +55,9 @@ pub use options::{
     GridPolicy, ProjStringVersion, WktOptions, WktVersion,
 };
 pub use transform::{
-    CrsExtentUse, GridAvailabilityUse, GridInfo, GridReadiness, GridReport, OperationInfo,
-    OperationParameter, SpatialCriterion, Transformer, TransformerBuilder, TransformerDefinition,
-    TransformerGroup, TransformerGroupBuilder,
+    Atomicity, CrsExtentUse, GridAvailabilityUse, GridInfo, GridReadiness, GridReport,
+    OperationInfo, OperationParameter, SpatialCriterion, Transformer, TransformerBuilder,
+    TransformerDefinition, TransformerGroup, TransformerGroupBuilder,
 };
 pub use version::{
     BUILT_VERSION_MAJOR, BUILT_VERSION_MINOR, BUILT_VERSION_PATCH, ProjVersion,

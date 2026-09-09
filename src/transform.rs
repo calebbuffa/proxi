@@ -1,7 +1,7 @@
 //! Transformer construction and coordinate transformation.
 
 use crate::context::Context;
-use crate::coord::{Coord, Coord2, Coord3, Coord4, CoordBatch};
+use crate::coord::{Coord, CoordBatch};
 use crate::crs::Crs;
 use crate::errors::{ProxiError, Result};
 use crate::ffi;
@@ -14,8 +14,8 @@ use std::marker::PhantomData;
 ///
 /// Stores only serialized CRS strings and options — it is `Send + Sync` and
 /// can be shared across threads (e.g. cloned into each Rayon job). A worker
-/// calls [`TransformerDefinition::build_for_current_thread`] to obtain a
-/// thread-bound [`Transformer`].
+/// calls [`TransformerDefinition::build`] to obtain a thread-bound
+/// [`Transformer`] from that thread's own [`Context`].
 #[derive(Clone, Debug)]
 pub struct TransformerDefinition {
     source: Option<String>,
@@ -421,7 +421,7 @@ impl TransformerDefinition {
                 input: "<pipeline>".to_string(),
                 message: "pipelines do not have a standalone source CRS".to_string(),
             })?;
-        serialize_crs(context, source, |crs| crs.to_wkt(version))
+        serialize_crs(context, source, |crs| crs.to_wkt(version, None))
     }
 
     /// The target CRS definition as WKT, materialized on the caller-provided
@@ -435,7 +435,7 @@ impl TransformerDefinition {
                 input: "<pipeline>".to_string(),
                 message: "pipelines do not have a standalone target CRS".to_string(),
             })?;
-        serialize_crs(context, target, |crs| crs.to_wkt(version))
+        serialize_crs(context, target, |crs| crs.to_wkt(version, None))
     }
 
     /// The source CRS definition as PROJJSON, materialized on the caller-
@@ -464,11 +464,8 @@ impl TransformerDefinition {
         serialize_crs(context, target, |crs| crs.to_projjson())
     }
 
-    /// Build a thread-bound [`Transformer`] on the calling thread.
-    pub fn build_for_current_thread<'context>(
-        &self,
-        context: &'context Context,
-    ) -> Result<Transformer<'context>> {
+    /// Build a [`Transformer`] bound to `context`.
+    pub fn build<'context>(&self, context: &'context Context) -> Result<Transformer<'context>> {
         Transformer::build(
             context,
             self.source.as_deref(),
@@ -686,12 +683,33 @@ impl<'context> Transformer<'context> {
         })
     }
 
-    /// Transform a single arbitrary [`Coord`] in-place.
+    /// Transform a single coordinate of any [`Coord`] type.
     ///
-    /// This is the zero-allocation path for user-provided coordinate types:
-    /// it reads `x`/`y` (and `z`/`t` if custom) via the [`Coord`] trait and
-    /// writes the result back through [`Coord::from_xyzt`] without boxing.
-    pub fn transform_coord<C: Coord>(
+    /// The one scalar entry point. Works with [`Coord2`](crate::Coord2),
+    /// [`Coord3`](crate::Coord3), [`Coord4`](crate::Coord4), tuples, and your
+    /// own types: it reads `x`/`y`/`z`/`t` through the [`Coord`] trait and
+    /// rebuilds via [`Coord::from_xyzt`], with no allocation and no boxing. The
+    /// dimensionality of the coordinate you pass determines the dimensionality
+    /// of the transform — a [`Coord2`](crate::Coord2) reports `z = 0.0` and
+    /// `t = INFINITY`, which is exactly what PROJ expects for 2D.
+    ///
+    /// ```no_run
+    /// # use proxi::{Context, Coord3, Direction, AngularUnits, TransformerBuilder};
+    /// # fn main() -> proxi::Result<()> {
+    /// # let context = Context::new()?;
+    /// # let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857").build()?;
+    /// let out = t.transform(
+    ///     Coord3::new(-71.1, 42.3, 0.0),
+    ///     Direction::Forward,
+    ///     AngularUnits::Auto,
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// For many coordinates, use [`transform_coords`](Self::transform_coords),
+    /// which batches them into a single PROJ call.
+    pub fn transform<C: Coord>(
         &mut self,
         point: C,
         direction: Direction,
@@ -717,131 +735,154 @@ impl<'context> Transformer<'context> {
         ))
     }
 
-    /// Transform a slice of arbitrary [`Coord`] in place.
+    /// Transform a slice of coordinates of any [`Coord`] type in place.
     ///
-    /// Each element is transformed via [`Coord`] with no intermediate
-    /// allocation. This is the scalar path (not `proj_trans_generic`); for
-    /// maximum throughput over plain `f64` buffers prefer
-    /// [`Transformer::transform_xy_in_place`] (and friends).
+    /// This is the one entry point for transforming many coordinates that live
+    /// in a slice, whatever their layout: [`Coord3`](crate::Coord3), tuples,
+    /// interleaved `[[f64; 3]]`, `glam::DVec3`, `geo::Point`, or your own type.
+    /// All of them go through a single `proj_trans_generic` call rather than one
+    /// PROJ call per point.
+    ///
+    /// The slice is scattered into the transformer's reusable scratch buffers,
+    /// transformed in one call, then gathered back. The buffers grow
+    /// geometrically and never shrink, so after warmup this allocates nothing.
+    /// Only the columns the type actually uses are moved, as declared by
+    /// [`Coord::DIMS`].
+    ///
+    /// If your data already lives in *separate* `x`/`y`/`z` buffers, prefer
+    /// [`transform_batch`](Self::transform_batch): it hands those buffers
+    /// straight to PROJ with no scatter/gather at all.
+    ///
+    /// ```no_run
+    /// # use proxi::{Atomicity, Context, Coord3, Direction, AngularUnits, TransformerBuilder};
+    /// # fn main() -> proxi::Result<()> {
+    /// # let context = Context::new()?;
+    /// # let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857").build()?;
+    /// let mut points = [Coord3::new(-71.1, 42.3, 0.0), Coord3::new(-0.1, 51.5, 0.0)];
+    /// t.transform_coords(
+    ///     &mut points,
+    ///     Direction::Forward,
+    ///     AngularUnits::Auto,
+    ///     Atomicity::All,
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn transform_coords<C: Coord>(
         &mut self,
         coords: &mut [C],
         direction: Direction,
         units: AngularUnits,
-    ) -> Result<()> {
-        let dir = ffi::dir_code(direction);
-        let (in_scale, out_scale) = self.units.scales(dir, units);
-        ffi::errno_reset(&self.obj);
-        for point in coords.iter_mut() {
-            let v = [
-                point.x() * in_scale,
-                point.y() * in_scale,
-                point.z(),
-                point.t(),
-            ];
-            let out = ffi::trans(&self.obj, dir, v);
-            *point = C::from_xyzt(out[0] * out_scale, out[1] * out_scale, out[2], out[3]);
+        atomicity: Atomicity,
+    ) -> Result<usize> {
+        let n = coords.len();
+        if n == 0 {
+            return Ok(0);
         }
-        check_errno(&self.obj, self.context)
+        // Const-evaluated so the unused-column branches below fold away
+        // entirely for each concrete `C`, exactly as a `const N` would.
+        const {
+            assert!(
+                C::DIMS >= 2 && C::DIMS <= 4,
+                "Coord::DIMS must be 2, 3, or 4"
+            )
+        }
+        let has_z = const { C::DIMS > 2 };
+        let has_t = const { C::DIMS > 3 };
+        self.scratch.ensure_capacity(n);
+
+        // Zip rather than index: the slices are known equal-length, so this
+        // scatters with no per-element bounds check.
+        let (xs, ys, zs, ts) = self.scratch.split_prefix(n);
+        for (((c, x), y), (z, t)) in coords
+            .iter()
+            .zip(xs.iter_mut())
+            .zip(ys.iter_mut())
+            .zip(zs.iter_mut().zip(ts.iter_mut()))
+        {
+            *x = c.x();
+            *y = c.y();
+            if has_z {
+                *z = c.z();
+            }
+            if has_t {
+                *t = c.t();
+            }
+        }
+
+        let (xs, ys, zs, ts) = self.scratch.split_prefix(n);
+        let result = transform_slices_soa_partial(
+            &self.obj,
+            self.context,
+            direction,
+            units,
+            &self.units,
+            xs,
+            ys,
+            has_z.then_some(zs),
+            has_t.then_some(ts),
+        );
+
+        let processed = match (result, atomicity) {
+            (Ok(processed), _) => processed,
+            // Nothing has been written back to the caller's slice yet, so
+            // returning here *is* the rollback: the scratch data is discarded.
+            (Err(failure), Atomicity::All) => return Err(failure.into()),
+            (Err(failure), Atomicity::Partial) => failure.processed,
+        };
+
+        // Gather the committed prefix back into the caller's slice. Components
+        // the type does not carry are supplied from the trait defaults so
+        // `from_xyzt` always sees what PROJ would have produced.
+        let (xs, ys, zs, ts) = self.scratch.split_prefix(processed);
+        for (((c, &x), &y), (&z, &t)) in coords[..processed]
+            .iter_mut()
+            .zip(xs.iter())
+            .zip(ys.iter())
+            .zip(zs.iter().zip(ts.iter()))
+        {
+            let z = if has_z { z } else { c.z() };
+            let t = if has_t { t } else { c.t() };
+            *c = C::from_xyzt(x, y, z, t);
+        }
+        Ok(processed)
     }
 
-    /// Transform a 2D point with an explicit direction and angular units.
-    pub fn transform_xy(
+    /// Transform a slice of coordinates in place, skipping non-finite points.
+    ///
+    /// Identical to [`transform_coords`](Self::transform_coords) with
+    /// [`Atomicity::Partial`], except that points whose `x` or `y` is `NaN` or
+    /// infinite are never handed to PROJ. Such a point counts toward the batch
+    /// total but not toward `processed`, and its value is left unchanged.
+    ///
+    /// `z` is carried through even when non-finite: height is normally the
+    /// vertical component rather than the angular driver, so a missing height
+    /// should not invalidate an otherwise-good horizontal coordinate.
+    ///
+    /// The first non-finite point truncates the processed prefix, so the
+    /// returned count is at most the index of the first bad point.
+    pub fn transform_coords_finite<C: Coord>(
         &mut self,
-        p: Coord2,
+        coords: &mut [C],
         direction: Direction,
         units: AngularUnits,
-    ) -> Result<Coord2> {
-        let dir = ffi::dir_code(direction);
-        let (in_scale, _) = self.units.scales(dir, units);
-
-        let v = [p.x * in_scale, p.y * in_scale, 0.0, f64::INFINITY];
-        ffi::errno_reset(&self.obj);
-        let out = ffi::trans(&self.obj, dir, v);
-        check_errno(&self.obj, self.context)?;
-
-        let (_, out_scale) = self.units.scales(dir, units);
-        Ok(Coord2 {
-            x: out[0] * out_scale,
-            y: out[1] * out_scale,
-        })
-    }
-
-    /// Transform a 3D point with an explicit direction and angular units.
-    pub fn transform_xyz(
-        &mut self,
-        p: Coord3,
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<Coord3> {
-        let dir = ffi::dir_code(direction);
-        let (in_scale, _) = self.units.scales(dir, units);
-
-        let v = [p.x * in_scale, p.y * in_scale, p.z, f64::INFINITY];
-        ffi::errno_reset(&self.obj);
-        let out = ffi::trans(&self.obj, dir, v);
-        check_errno(&self.obj, self.context)?;
-
-        let (_, out_scale) = self.units.scales(dir, units);
-        Ok(Coord3 {
-            x: out[0] * out_scale,
-            y: out[1] * out_scale,
-            z: out[2],
-        })
-    }
-
-    /// Transform a 4D point with an explicit direction and angular units.
-    pub fn transform_xyzt(
-        &mut self,
-        p: Coord4,
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<Coord4> {
-        let dir = ffi::dir_code(direction);
-        let (in_scale, _) = self.units.scales(dir, units);
-
-        let v = [p.x * in_scale, p.y * in_scale, p.z, p.t];
-        ffi::errno_reset(&self.obj);
-        let out = ffi::trans(&self.obj, dir, v);
-        check_errno(&self.obj, self.context)?;
-
-        let (_, out_scale) = self.units.scales(dir, units);
-        Ok(Coord4 {
-            x: out[0] * out_scale,
-            y: out[1] * out_scale,
-            z: out[2],
-            t: out[3],
-        })
-    }
-
-    /// Forward 2D transform (source -> target).
-    pub fn forward_xy(&mut self, p: Coord2) -> Result<Coord2> {
-        self.transform_xy(p, Direction::Forward, AngularUnits::Auto)
-    }
-
-    /// Inverse 2D transform (target -> source).
-    pub fn inverse_xy(&mut self, p: Coord2) -> Result<Coord2> {
-        self.transform_xy(p, Direction::Inverse, AngularUnits::Auto)
-    }
-
-    /// Forward 3D transform (source -> target).
-    pub fn forward_xyz(&mut self, p: Coord3) -> Result<Coord3> {
-        self.transform_xyz(p, Direction::Forward, AngularUnits::Auto)
-    }
-
-    /// Inverse 3D transform (target -> source).
-    pub fn inverse_xyz(&mut self, p: Coord3) -> Result<Coord3> {
-        self.transform_xyz(p, Direction::Inverse, AngularUnits::Auto)
-    }
-
-    /// Forward 4D transform (source -> target).
-    pub fn forward_xyzt(&mut self, p: Coord4) -> Result<Coord4> {
-        self.transform_xyzt(p, Direction::Forward, AngularUnits::Auto)
-    }
-
-    /// Inverse 4D transform (target -> source).
-    pub fn inverse_xyzt(&mut self, p: Coord4) -> Result<Coord4> {
-        self.transform_xyzt(p, Direction::Inverse, AngularUnits::Auto)
+    ) -> Result<usize> {
+        let total = coords.len();
+        let first_bad = coords
+            .iter()
+            .position(|c| !c.x().is_finite() || !c.y().is_finite())
+            .unwrap_or(total);
+        let processed = self.transform_coords(
+            &mut coords[..first_bad],
+            direction,
+            units,
+            Atomicity::Partial,
+        )?;
+        if processed == total {
+            Ok(processed)
+        } else {
+            Err(crate::errors::PartialFailure { processed, total }.into())
+        }
     }
 
     /// Return metadata for the selected coordinate operation.
@@ -869,11 +910,12 @@ impl<'context> Transformer<'context> {
             let grids = self.grids()?;
             let mut downloaded = 0;
             for grid in grids {
-                if !grid.is_available() && grid.direct_download {
-                    if let Some(url) = grid.url {
-                        self.context.download_grid(&url)?;
-                        downloaded += 1;
-                    }
+                if !grid.is_available()
+                    && grid.direct_download
+                    && let Some(url) = grid.url
+                {
+                    self.context.download_grid(&url)?;
+                    downloaded += 1;
                 }
             }
             Ok(downloaded)
@@ -921,43 +963,47 @@ impl<'context> Transformer<'context> {
         Ok(output)
     }
 
-    /// Forward bounds transform using automatic angular-unit handling.
-    pub fn forward_bounds(&mut self, bounds: [f64; 4], densify_points: i32) -> Result<[f64; 4]> {
-        self.transform_bounds(
-            bounds,
-            Direction::Forward,
-            AngularUnits::Auto,
-            densify_points,
-        )
-    }
-
-    /// Inverse bounds transform using automatic angular-unit handling.
-    pub fn inverse_bounds(&mut self, bounds: [f64; 4], densify_points: i32) -> Result<[f64; 4]> {
-        self.transform_bounds(
-            bounds,
-            Direction::Inverse,
-            AngularUnits::Auto,
-            densify_points,
-        )
-    }
-
-    /// Transform a validated structure-of-arrays batch in place.
+    /// Transform a structure-of-arrays batch in place.
     ///
-    /// This is the zero-copy fast path, mapping directly to
-    /// `proj_trans_generic`. The `x`/`y` buffers are converted degrees <-> radians
-    /// in place as needed, then transformed.
-    pub fn transform_soa(
+    /// The primary batch entry point and the fastest path in the crate: a
+    /// [`CoordBatch`] borrows the caller's `x`/`y` (and optionally `z`/`t`)
+    /// buffers and hands them straight to `proj_trans_generic`, so with
+    /// [`Atomicity::Partial`] there is no copy and no allocation at all.
+    ///
+    /// The dimensionality comes from the batch — build it with
+    /// [`CoordBatch::new`] and add [`with_z`](CoordBatch::with_z) /
+    /// [`with_t`](CoordBatch::with_t) as needed — so there is one method rather
+    /// than one per dimension.
+    ///
+    /// Returns the number of coordinates transformed. Under
+    /// [`Atomicity::All`] (the default) that always equals the batch length on
+    /// success, and the caller's buffers are untouched on failure.
+    ///
+    /// ```no_run
+    /// # use proxi::{Atomicity, Context, CoordBatch, Direction, AngularUnits, TransformerBuilder};
+    /// # fn main() -> proxi::Result<()> {
+    /// # let context = Context::new()?;
+    /// # let mut t = TransformerBuilder::new(&context, "EPSG:4326", "EPSG:3857").build()?;
+    /// let mut xs = [-71.1, -0.1];
+    /// let mut ys = [42.3, 51.5];
+    /// let mut zs = [0.0, 0.0];
+    ///
+    /// let batch = CoordBatch::new(&mut xs, &mut ys)?.with_z(&mut zs)?;
+    /// t.transform_batch(batch, Direction::Forward, AngularUnits::Auto, Atomicity::All)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn transform_batch(
         &mut self,
         coords: CoordBatch<'_>,
         direction: Direction,
         units: AngularUnits,
-    ) -> Result<()> {
+        atomicity: Atomicity,
+    ) -> Result<usize> {
         let (x, y, z, t) = coords.into_parts();
         // Defensive check at the FFI boundary: `CoordBatch`'s validating
-        // constructors enforce equal lengths, but re-verify here so the
-        // safety argument is local to the one function that hands slices to
-        // PROJ's `proj_trans_generic` (protects against future internal
-        // changes). Only a few length comparisons — negligible vs. a batch.
+        // constructors enforce equal lengths, but re-verify here so the safety
+        // argument is local to the one place that hands slices to PROJ.
         if y.len() != x.len()
             || z.as_ref().is_some_and(|z| z.len() != x.len())
             || t.as_ref().is_some_and(|t| t.len() != x.len())
@@ -968,491 +1014,94 @@ impl<'context> Transformer<'context> {
                 actual: y.len(),
             });
         }
-        // obj and scratch are disjoint fields, so we can borrow them
-        // independently without a `&mut self` method call.
-        transform_slices_soa(
-            &self.obj,
-            self.context,
-            direction,
-            units,
-            &self.units,
-            x,
-            y,
-            z,
-            t,
-        )
-    }
 
-    /// In-place 2D batch via separate `x` and `y` slices.
-    pub fn transform_xy_in_place(
-        &mut self,
-        x: &mut [f64],
-        y: &mut [f64],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
-        let coords = CoordBatch::new(x, y)?;
-        self.transform_soa(coords, direction, units)
-    }
-
-    pub fn transform_xy_into(
-        &mut self,
-        input_x: &[f64],
-        input_y: &[f64],
-        output_x: &mut [f64],
-        output_y: &mut [f64],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
-        let n = input_x.len();
-        for (name, actual) in [
-            ("input_y", input_y.len()),
-            ("output_x", output_x.len()),
-            ("output_y", output_y.len()),
-        ] {
-            if actual != n {
-                return Err(ProxiError::LengthMismatch {
-                    name,
-                    expected: n,
-                    actual,
-                });
-            }
-        }
-        output_x.copy_from_slice(input_x);
-        output_y.copy_from_slice(input_y);
-        self.transform_xy_in_place(output_x, output_y, direction, units)
-    }
-
-    pub fn transform_xy_transactional(
-        &mut self,
-        x: &mut [f64],
-        y: &mut [f64],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
         let n = x.len();
-        if y.len() != n {
-            return Err(ProxiError::LengthMismatch {
-                name: "y",
-                expected: n,
-                actual: y.len(),
-            });
-        }
-        if n == 0 {
-            return Ok(());
-        }
-        self.scratch.ensure_capacity(n);
-        self.scratch.xs[..n].copy_from_slice(x);
-        self.scratch.ys[..n].copy_from_slice(y);
-        transform_slices_soa(
-            &self.obj,
-            self.context,
-            direction,
-            units,
-            &self.units,
-            &mut self.scratch.xs[..n],
-            &mut self.scratch.ys[..n],
-            None,
-            None,
-        )?;
-        x.copy_from_slice(&self.scratch.xs[..n]);
-        y.copy_from_slice(&self.scratch.ys[..n]);
-        Ok(())
-    }
-
-    /// In-place 3D batch via separate `x`, `y`, `z` slices.
-    pub fn transform_xyz_in_place(
-        &mut self,
-        x: &mut [f64],
-        y: &mut [f64],
-        z: &mut [f64],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
-        let coords = CoordBatch::new(x, y)?.with_z(z)?;
-        self.transform_soa(coords, direction, units)
-    }
-
-    /// Transform separate XYZ input slices into separate caller-owned output
-    /// slices. Inputs are never modified; no internal coordinate re-layout is
-    /// required beyond the caller's output buffers.
-    #[allow(clippy::too_many_arguments)]
-    pub fn transform_xyz_into(
-        &mut self,
-        input_x: &[f64],
-        input_y: &[f64],
-        input_z: &[f64],
-        output_x: &mut [f64],
-        output_y: &mut [f64],
-        output_z: &mut [f64],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
-        let n = input_x.len();
-        for (name, actual) in [
-            ("input_y", input_y.len()),
-            ("input_z", input_z.len()),
-            ("output_x", output_x.len()),
-            ("output_y", output_y.len()),
-            ("output_z", output_z.len()),
-        ] {
-            if actual != n {
-                return Err(ProxiError::LengthMismatch {
-                    name,
-                    expected: n,
-                    actual,
-                });
-            }
-        }
-        output_x.copy_from_slice(input_x);
-        output_y.copy_from_slice(input_y);
-        output_z.copy_from_slice(input_z);
-        self.transform_xyz_in_place(output_x, output_y, output_z, direction, units)
-    }
-
-    /// Transform XYZ data atomically. The input slices are unchanged if PROJ
-    /// reports an error; successful results are committed in place.
-    pub fn transform_xyz_transactional(
-        &mut self,
-        x: &mut [f64],
-        y: &mut [f64],
-        z: &mut [f64],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
-        let n = x.len();
-        if y.len() != n {
-            return Err(ProxiError::LengthMismatch {
-                name: "y",
-                expected: n,
-                actual: y.len(),
-            });
-        }
-        if z.len() != n {
-            return Err(ProxiError::LengthMismatch {
-                name: "z",
-                expected: n,
-                actual: z.len(),
-            });
-        }
-        if n == 0 {
-            return Ok(());
-        }
-        self.scratch.ensure_capacity(n);
-        self.scratch.xs[..n].copy_from_slice(x);
-        self.scratch.ys[..n].copy_from_slice(y);
-        self.scratch.zs[..n].copy_from_slice(z);
-        transform_slices_soa(
-            &self.obj,
-            self.context,
-            direction,
-            units,
-            &self.units,
-            &mut self.scratch.xs[..n],
-            &mut self.scratch.ys[..n],
-            Some(&mut self.scratch.zs[..n]),
-            None,
-        )?;
-        x.copy_from_slice(&self.scratch.xs[..n]);
-        y.copy_from_slice(&self.scratch.ys[..n]);
-        z.copy_from_slice(&self.scratch.zs[..n]);
-        Ok(())
-    }
-
-    /// In-place 4D batch via separate `x`, `y`, `z`, `t` slices.
-    pub fn transform_xyzt_in_place(
-        &mut self,
-        x: &mut [f64],
-        y: &mut [f64],
-        z: &mut [f64],
-        t: &mut [f64],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
-        let coords = CoordBatch::new(x, y)?.with_z(z)?.with_t(t)?;
-        self.transform_soa(coords, direction, units)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn transform_xyzt_into(
-        &mut self,
-        input_x: &[f64],
-        input_y: &[f64],
-        input_z: &[f64],
-        input_t: &[f64],
-        output_x: &mut [f64],
-        output_y: &mut [f64],
-        output_z: &mut [f64],
-        output_t: &mut [f64],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
-        let n = input_x.len();
-        for (name, actual) in [
-            ("input_y", input_y.len()),
-            ("input_z", input_z.len()),
-            ("input_t", input_t.len()),
-            ("output_x", output_x.len()),
-            ("output_y", output_y.len()),
-            ("output_z", output_z.len()),
-            ("output_t", output_t.len()),
-        ] {
-            if actual != n {
-                return Err(ProxiError::LengthMismatch {
-                    name,
-                    expected: n,
-                    actual,
-                });
-            }
-        }
-        output_x.copy_from_slice(input_x);
-        output_y.copy_from_slice(input_y);
-        output_z.copy_from_slice(input_z);
-        output_t.copy_from_slice(input_t);
-        self.transform_xyzt_in_place(output_x, output_y, output_z, output_t, direction, units)
-    }
-
-    pub fn transform_xyzt_transactional(
-        &mut self,
-        x: &mut [f64],
-        y: &mut [f64],
-        z: &mut [f64],
-        t: &mut [f64],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
-        let n = x.len();
-        for (name, actual) in [("y", y.len()), ("z", z.len()), ("t", t.len())] {
-            if actual != n {
-                return Err(ProxiError::LengthMismatch {
-                    name,
-                    expected: n,
-                    actual,
-                });
-            }
-        }
-        if n == 0 {
-            return Ok(());
-        }
-        self.scratch.ensure_capacity(n);
-        self.scratch.xs[..n].copy_from_slice(x);
-        self.scratch.ys[..n].copy_from_slice(y);
-        self.scratch.zs[..n].copy_from_slice(z);
-        self.scratch.ts[..n].copy_from_slice(t);
-        transform_slices_soa(
-            &self.obj,
-            self.context,
-            direction,
-            units,
-            &self.units,
-            &mut self.scratch.xs[..n],
-            &mut self.scratch.ys[..n],
-            Some(&mut self.scratch.zs[..n]),
-            Some(&mut self.scratch.ts[..n]),
-        )?;
-        x.copy_from_slice(&self.scratch.xs[..n]);
-        y.copy_from_slice(&self.scratch.ys[..n]);
-        z.copy_from_slice(&self.scratch.zs[..n]);
-        t.copy_from_slice(&self.scratch.ts[..n]);
-        Ok(())
-    }
-
-    /// Transform an array of `[x, y, z]` in place.
-    ///
-    /// Stages through a reusable internal scratch buffer (allocates on first
-    /// growth, then copies twice): no steady-state allocation after warmup.
-    pub fn transform_xyz_aos_in_place(
-        &mut self,
-        coords: &mut [[f64; 3]],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
-        let n = coords.len();
-        if n == 0 {
-            return Ok(());
-        }
-        self.scratch.ensure_capacity(n);
-        for (i, c) in coords.iter().enumerate() {
-            self.scratch.xs[i] = c[0];
-            self.scratch.ys[i] = c[1];
-            self.scratch.zs[i] = c[2];
-        }
-
-        // Borrow obj/context and scratch as disjoint fields.
-        transform_slices_soa(
-            &self.obj,
-            self.context,
-            direction,
-            units,
-            &self.units,
-            &mut self.scratch.xs[..n],
-            &mut self.scratch.ys[..n],
-            Some(&mut self.scratch.zs[..n]),
-            None,
-        )?;
-
-        for (i, c) in coords.iter_mut().enumerate() {
-            c[0] = self.scratch.xs[i];
-            c[1] = self.scratch.ys[i];
-            c[2] = self.scratch.zs[i];
-        }
-        Ok(())
-    }
-
-    /// Transform an array of `[x, y, z]` in place, returning the number of
-    /// points processed (must equal `len()` on success). Used by the
-    /// completeness (`NaN/Inf`) policy path. Internal.
-    fn transform_xyz_aos_in_place_partial(
-        &mut self,
-        coords: &mut [[f64; 3]],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> std::result::Result<usize, crate::errors::PartialFailure> {
-        let n = coords.len();
         if n == 0 {
             return Ok(0);
         }
-        self.scratch.ensure_capacity(n);
-        for (i, c) in coords.iter().enumerate() {
-            self.scratch.xs[i] = c[0];
-            self.scratch.ys[i] = c[1];
-            self.scratch.zs[i] = c[2];
-        }
-        let processed = transform_slices_soa_partial(
-            &self.obj,
-            self.context,
-            direction,
-            units,
-            &self.units,
-            &mut self.scratch.xs[..n],
-            &mut self.scratch.ys[..n],
-            Some(&mut self.scratch.zs[..n]),
-            None,
-        )?;
-        for (i, c) in coords.iter_mut().enumerate() {
-            c[0] = self.scratch.xs[i];
-            c[1] = self.scratch.ys[i];
-            c[2] = self.scratch.zs[i];
-        }
-        Ok(processed)
-    }
 
-    /// Transform an array of `[x, y, z, t]` in place.
+        match atomicity {
+            // Zero-copy: PROJ writes directly into the caller's buffers and a
+            // short count is reported rather than rolled back.
+            Atomicity::Partial => match transform_slices_soa_partial(
+                &self.obj,
+                self.context,
+                direction,
+                units,
+                &self.units,
+                x,
+                y,
+                z,
+                t,
+            ) {
+                Ok(processed) => Ok(processed),
+                Err(failure) => Ok(failure.processed),
+            },
+            // All-or-nothing: stage through scratch so the caller's buffers are
+            // only written once PROJ has committed the whole batch.
+            Atomicity::All => {
+                self.scratch.ensure_capacity(n);
+                self.scratch.xs[..n].copy_from_slice(x);
+                self.scratch.ys[..n].copy_from_slice(y);
+                if let Some(z) = z.as_deref() {
+                    self.scratch.zs[..n].copy_from_slice(z);
+                }
+                if let Some(t) = t.as_deref() {
+                    self.scratch.ts[..n].copy_from_slice(t);
+                }
+
+                let has_z = z.is_some();
+                let has_t = t.is_some();
+                let (sx, sy, sz, st) = self.scratch.split_prefix(n);
+                transform_slices_soa_partial(
+                    &self.obj,
+                    self.context,
+                    direction,
+                    units,
+                    &self.units,
+                    sx,
+                    sy,
+                    has_z.then_some(sz),
+                    has_t.then_some(st),
+                )?;
+
+                x.copy_from_slice(&self.scratch.xs[..n]);
+                y.copy_from_slice(&self.scratch.ys[..n]);
+                if let Some(z) = z {
+                    z.copy_from_slice(&self.scratch.zs[..n]);
+                }
+                if let Some(t) = t {
+                    t.copy_from_slice(&self.scratch.ts[..n]);
+                }
+                Ok(n)
+            }
+        }
+    }
+}
+
+/// Whether a batch transform may commit a partial result.
+///
+/// PROJ can stop part-way through a batch. This selects what happens to the
+/// caller's buffers when it does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Atomicity {
+    /// All-or-nothing: on a short count the caller's buffers are left exactly
+    /// as they were and [`ProxiError::Partial`] is returned.
     ///
-    /// Stages through a reusable internal scratch buffer; no steady-state
-    /// allocation after warmup.
-    pub fn transform_xyzt_aos_in_place(
-        &mut self,
-        coords: &mut [[f64; 4]],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> Result<()> {
-        let n = coords.len();
-        if n == 0 {
-            return Ok(());
-        }
-        self.scratch.ensure_capacity(n);
-        for (i, c) in coords.iter().enumerate() {
-            self.scratch.xs[i] = c[0];
-            self.scratch.ys[i] = c[1];
-            self.scratch.zs[i] = c[2];
-            self.scratch.ts[i] = c[3];
-        }
-
-        transform_slices_soa(
-            &self.obj,
-            self.context,
-            direction,
-            units,
-            &self.units,
-            &mut self.scratch.xs[..n],
-            &mut self.scratch.ys[..n],
-            Some(&mut self.scratch.zs[..n]),
-            Some(&mut self.scratch.ts[..n]),
-        )?;
-
-        for (i, c) in coords.iter_mut().enumerate() {
-            c[0] = self.scratch.xs[i];
-            c[1] = self.scratch.ys[i];
-            c[2] = self.scratch.zs[i];
-            c[3] = self.scratch.ts[i];
-        }
-        Ok(())
-    }
-
-    /// Transform an interleaved array of `[x, y]` points in place using the
-    /// transformer's reusable scratch buffers.
+    /// For [`transform_batch`](Transformer::transform_batch) this requires
+    /// staging through the transformer's internal scratch buffers, which costs
+    /// two extra copies over the batch. It is the default because silently
+    /// half-transformed data is the more dangerous failure mode.
+    #[default]
+    All,
+    /// Best-effort: the successfully transformed prefix is committed and the
+    /// number of transformed coordinates is returned. A short count is *not* an
+    /// error — compare the returned count against the batch length.
     ///
-    /// This is the AoS (array-of-structures) companion to the SOA fast path;
-    /// it copies into separate scratch buffers and copies results back.
-    /// On a *short* PROJ count it returns `Err(PartialFailure)`
-    /// with the committed-prefix summary (PROJ committed the first `processed`
-    /// points in place; `total` is the batch size). Non-finite inputs are
-    /// included in the count (see NaN/Inf policy).
-    pub fn transform_xy_interleaved_in_place(
-        &mut self,
-        coords: &mut [[f64; 2]],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> std::result::Result<usize, crate::errors::PartialFailure> {
-        let n = coords.len();
-        if n == 0 {
-            return Ok(0);
-        }
-        self.scratch.ensure_capacity(n);
-        for (i, c) in coords.iter().enumerate() {
-            self.scratch.xs[i] = c[0];
-            self.scratch.ys[i] = c[1];
-        }
-        let processed = transform_slices_soa_partial(
-            &self.obj,
-            self.context,
-            direction,
-            units,
-            &self.units,
-            &mut self.scratch.xs[..n],
-            &mut self.scratch.ys[..n],
-            None,
-            None,
-        )?;
-        for (i, c) in coords.iter_mut().enumerate() {
-            c[0] = self.scratch.xs[i];
-            c[1] = self.scratch.ys[i];
-        }
-        Ok(processed)
-    }
-
-    /// Transform `[x, y, z]` points in place with a completeness (NaN/Inf)
-    /// policy, reporting any partial failure via [`crate::errors::PartialFailure`].
-    ///
-    /// NaN/Inf policy: a point whose `x` or `y` is non-finite is *not* sent to
-    /// PROJ. It counts toward `total` but not `processed`, and its output is
-    /// left unchanged. `z` is carried through even when it is non-finite
-    /// (height is typically the ellipsoid/vertical component, not the angular
-    /// driver). The first non-finite point truncates the processed prefix, so
-    /// `processed <= first_bad_point` unless every input is finite.
-    pub fn transform_xyz_complete(
-        &mut self,
-        coords: &mut [[f64; 3]],
-        direction: Direction,
-        units: AngularUnits,
-    ) -> std::result::Result<usize, crate::errors::PartialFailure> {
-        let total = coords.len();
-        // Find the first non-finite (x|y) point; points before it are all finite.
-        let first_bad = coords
-            .iter()
-            .position(|c| !c[0].is_finite() || !c[1].is_finite())
-            .unwrap_or(total);
-        // Transform the all-finite prefix in place (zero-copy).
-        let prefix = &mut coords[..first_bad];
-        let processed = self.transform_xyz_aos_in_place_partial(prefix, direction, units)?;
-        debug_assert_eq!(processed, first_bad);
-        if processed == total {
-            Ok(processed)
-        } else {
-            Err(crate::errors::PartialFailure { processed, total })
-        }
-    }
+    /// This is the fastest option: for
+    /// [`transform_batch`](Transformer::transform_batch) PROJ writes directly
+    /// into the caller's buffers with no staging copy.
+    Partial,
 }
 
 fn operation_info_for(obj: &ffi::ProjObj, context: &Context) -> Result<OperationInfo> {
@@ -1509,23 +1158,30 @@ fn ensure_grid_policy(
     if options.grid_policy == GridPolicy::AllowMissing {
         return Ok(());
     }
+    #[cfg_attr(not(feature = "network"), allow(unused_mut))]
     let mut grids = ffi::operation_grids(obj, context)?;
     let missing = || grids.iter().filter(|grid| !grid.is_available()).count();
     if missing() == 0 {
         return Ok(());
     }
     if options.grid_policy == GridPolicy::DownloadMissing && network_can_download(context) {
-        for grid in grids
-            .iter()
-            .filter(|grid| !grid.is_available() && grid.direct_download)
+        // `download_grid` only exists with the `network` feature; without it
+        // `network_can_download` is a constant `false`, so this block is dead
+        // code that must nonetheless still compile.
+        #[cfg(feature = "network")]
         {
-            if let Some(url) = &grid.url {
-                context.download_grid(url)?;
+            for grid in grids
+                .iter()
+                .filter(|grid| !grid.is_available() && grid.direct_download)
+            {
+                if let Some(url) = &grid.url {
+                    context.download_grid(url)?;
+                }
             }
-        }
-        grids = ffi::operation_grids(obj, context)?;
-        if grids.iter().all(|grid| grid.is_available()) {
-            return Ok(());
+            grids = ffi::operation_grids(obj, context)?;
+            if grids.iter().all(|grid| grid.is_available()) {
+                return Ok(());
+            }
         }
     }
     let missing_names = grids
@@ -1670,66 +1326,6 @@ fn check_errno(obj: &ffi::ProjObj, context: &Context) -> Result<()> {
     } else {
         Ok(())
     }
-}
-
-/// Core SOA transform: apply unit scaling, call `proj_trans_generic`, then
-/// reverse scaling. All slices must be the same length (validated by
-/// [`CoordBatch`] or by the caller's invariants).
-#[allow(clippy::too_many_arguments)]
-fn transform_slices_soa(
-    obj: &ffi::ProjObj,
-    context: &Context,
-    direction: Direction,
-    units: AngularUnits,
-    units_metadata: &UnitMetadata,
-    x: &mut [f64],
-    y: &mut [f64],
-    z: Option<&mut [f64]>,
-    t: Option<&mut [f64]>,
-) -> Result<()> {
-    let dir = ffi::dir_code(direction);
-    let (in_scale, out_scale) = input_output_scales(units_metadata, dir, units);
-
-    let n = x.len();
-    if n == 0 {
-        return Ok(());
-    }
-
-    // Input unit scaling on x/y only (z and t are not angular).
-    if in_scale != 1.0 {
-        for v in x.iter_mut() {
-            *v *= in_scale;
-        }
-        for v in y.iter_mut() {
-            *v *= in_scale;
-        }
-    }
-
-    ffi::errno_reset(obj);
-    let n_out = ffi::trans_generic(obj, dir, x, y, z, t).min(n);
-    check_errno(obj, context)?;
-    // `proj_trans_generic` returns the number of coordinates successfully
-    // transformed; a short count indicates a partial failure.
-    if n_out != n {
-        return Err(ProxiError::Transform {
-            code: ffi::errno(obj),
-            message: format!(
-                "only {n_out} of {n} coordinates were transformed (PROJ stopped early)"
-            ),
-        });
-    }
-
-    // Output unit scaling on x/y only.
-    if out_scale != 1.0 {
-        for v in x.iter_mut() {
-            *v *= out_scale;
-        }
-        for v in y.iter_mut() {
-            *v *= out_scale;
-        }
-    }
-
-    Ok(())
 }
 
 /// Core SOA transform that reports a short PROJ count as a partial failure.

@@ -34,10 +34,10 @@ fn auto_equals_degrees_for_degree_input_on_geographic_forward() {
     let lon_lat = Coord3::new(15.0, 0.0, 0.0); // degrees
 
     let auto = t
-        .transform_xyz(lon_lat, Direction::Forward, AngularUnits::Auto)
+        .transform(lon_lat, Direction::Forward, AngularUnits::Auto)
         .expect("auto forward");
     let degrees = t
-        .transform_xyz(lon_lat, Direction::Forward, AngularUnits::Degrees)
+        .transform(lon_lat, Direction::Forward, AngularUnits::Degrees)
         .expect("degrees forward");
 
     // Both should produce the UTM central-meridian origin (~500000 E, 0 N).
@@ -64,10 +64,10 @@ fn radians_input_equals_auto_degrees_input() {
     let rad = Coord3::new(10.0_f64.to_radians(), 20.0_f64.to_radians(), 0.0);
 
     let auto = t
-        .transform_xyz(deg, Direction::Forward, AngularUnits::Auto)
+        .transform(deg, Direction::Forward, AngularUnits::Auto)
         .expect("auto");
     let radians = t
-        .transform_xyz(rad, Direction::Forward, AngularUnits::Radians)
+        .transform(rad, Direction::Forward, AngularUnits::Radians)
         .expect("radians");
 
     assert!(
@@ -88,13 +88,13 @@ fn linear_operation_auto_degrees_radians_all_identity() {
 
     let meters = Coord3::new(500_000.0, 4_500_000.0, 100.0);
     let auto = t
-        .transform_xyz(meters, Direction::Forward, AngularUnits::Auto)
+        .transform(meters, Direction::Forward, AngularUnits::Auto)
         .expect("auto");
     let degrees = t
-        .transform_xyz(meters, Direction::Forward, AngularUnits::Degrees)
+        .transform(meters, Direction::Forward, AngularUnits::Degrees)
         .expect("degrees");
     let radians = t
-        .transform_xyz(meters, Direction::Forward, AngularUnits::Radians)
+        .transform(meters, Direction::Forward, AngularUnits::Radians)
         .expect("radians");
 
     // All three agree (identity scaling on linear XY). Input and output are in
@@ -120,10 +120,10 @@ fn auto_inverse_returns_degrees_and_matches_degrees() {
     // to lon=15 degrees , lat=0 degrees .
     let utm = Coord3::new(500_000.0, 0.0, 0.0);
     let auto = t
-        .transform_xyz(utm, Direction::Inverse, AngularUnits::Auto)
+        .transform(utm, Direction::Inverse, AngularUnits::Auto)
         .expect("auto inverse");
     let degrees = t
-        .transform_xyz(utm, Direction::Inverse, AngularUnits::Degrees)
+        .transform(utm, Direction::Inverse, AngularUnits::Degrees)
         .expect("degrees inverse");
 
     // Auto returns degrees: ~15 degrees E lon, 0 lat.
@@ -147,10 +147,10 @@ fn auto_roundtrip_recovers_original_degrees() {
 
     let original = Coord3::new(15.0, 45.0, 100.0);
     let utm = t
-        .transform_xyz(original, Direction::Forward, AngularUnits::Auto)
+        .transform(original, Direction::Forward, AngularUnits::Auto)
         .expect("forward");
     let back = t
-        .transform_xyz(utm, Direction::Inverse, AngularUnits::Auto)
+        .transform(utm, Direction::Inverse, AngularUnits::Auto)
         .expect("inverse");
 
     assert!(

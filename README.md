@@ -11,7 +11,7 @@ No prebuilt binaries are downloaded.
 ## Example
 
 ```rust
-use proxi::{AngularUnits, Context, Coord3, TransformerBuilder};
+use proxi::{AngularUnits, Atomicity, Context, Coord3, CoordBatch, Direction, TransformerBuilder};
 
 let ctx = Context::new()?;
 
@@ -19,17 +19,30 @@ let ctx = Context::new()?;
 let mut t = TransformerBuilder::new(&ctx, "EPSG:4978", "EPSG:26986+5773")
     .always_xy(true)
     .build()?;
-let out = t.forward_xyz(Coord3::new(1113194.9079, -4849539.9594, 3987474.1413));
+let out = t.transform(
+    Coord3::new(1113194.9079, -4849539.9594, 3987474.1413),
+    Direction::Forward,
+    AngularUnits::Auto,
+)?;
 
-// Zero-copy SOA batch.
+// Many coordinates, any layout: one PROJ call for the whole slice.
+let mut points = vec![Coord3::new(1113194.9079, -4849539.9594, 3987474.1413); 1024];
+t.transform_coords(&mut points, Direction::Forward, AngularUnits::Auto, Atomicity::All)?;
+
+// Zero-copy SOA batch: the buffers are handed straight to PROJ.
 let mut xs = vec![6378137.0; 1024];
 let mut ys = vec![0.0; 1024];
 let mut zs = vec![0.0; 1024];
-t.transform_xyz_in_place(&mut xs, &mut ys, &mut zs, proxi::Direction::Forward, AngularUnits::Auto)?;
+t.transform_batch(
+    CoordBatch::new(&mut xs, &mut ys)?.with_z(&mut zs)?,
+    Direction::Forward,
+    AngularUnits::Auto,
+    Atomicity::All,
+)?;
 
 // CRS inspection + database lookups.
 let crs = proxi::Crs::from_authority(&ctx, "EPSG", "4326")?;
-println!("{}", crs.to_wkt(proxi::WktVersion::Wkt2_2019)?);
+println!("{}", crs.to_wkt(proxi::WktVersion::Wkt2_2019, None)?);
 let db = proxi::Database::new(&ctx);
 for rec in db.crs_search(Some("EPSG"), &proxi::CrsSearch {
     types: vec![proxi::CrsType::ProjectedCrs],
@@ -38,6 +51,29 @@ for rec in db.crs_search(Some("EPSG"), &proxi::CrsSearch {
     println!("{} {:?}", rec.code.unwrap_or_default(), rec.name);
 }
 ```
+
+## API shape
+
+There is one way to do each thing:
+
+| Task | Method |
+| --- | --- |
+| One coordinate (any `Coord` type) | `transform` |
+| Many coordinates in a slice (any `Coord` type, including interleaved `[f64; N]`) | `transform_coords` |
+| Same, skipping `NaN`/`Inf` points | `transform_coords_finite` |
+| Separate `x`/`y`/`z` buffers (fastest, zero-copy) | `transform_batch` |
+| A bounds rectangle | `transform_bounds` |
+
+Layout is not part of the method name. `transform_coords` takes any slice whose
+element implements `Coord` — `Coord3`, `(f64, f64, f64)`, interleaved
+`[f64; 3]`, `glam::DVec3`, `geo::Point`, or your own type — and batches the whole
+slice into a single PROJ call. Reach for `transform_batch` only when your data
+already lives in separate `x`/`y`/`z` columns, which is the one layout PROJ can
+consume with no copy at all.
+
+Direction and angular units are always explicit arguments rather than baked
+into method names, and batch methods take an [`Atomicity`] telling them whether
+a partial PROJ result may be committed to your buffers.
 
 ## Building
 

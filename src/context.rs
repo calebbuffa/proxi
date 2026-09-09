@@ -57,10 +57,10 @@ fn resolve_data_dir(options: &crate::options::ContextOptions) -> Result<Option<P
             ),
         });
     }
-    if let Some(dir) = crate::embedded_data::materialize()? {
-        if has_db(&dir) {
-            return Ok(Some(dir));
-        }
+    if let Some(dir) = crate::embedded_data::materialize()?
+        && has_db(&dir)
+    {
+        return Ok(Some(dir));
     }
     if let Some(dir) = option_env!("PROXI_DATA_DIR") {
         let dir = PathBuf::from(dir);
@@ -104,10 +104,10 @@ fn configure_context(
         }
         search_paths.push(user_data_dir.clone());
     }
-    if let Some(data_dir) = &data_dir {
-        if !search_paths.contains(data_dir) {
-            search_paths.push(data_dir.clone());
-        }
+    if let Some(data_dir) = &data_dir
+        && !search_paths.contains(data_dir)
+    {
+        search_paths.push(data_dir.clone());
     }
     for path in &options.data_paths {
         if !search_paths.contains(path) {

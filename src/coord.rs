@@ -15,6 +15,20 @@ use crate::errors::{ProxiError, Result};
 /// for 2D). Implement it for your own types to transform them in place with no
 /// intermediate allocation.
 pub trait Coord: Copy {
+    /// How many components this type carries: `2` for XY, `3` for XYZ, `4` for
+    /// XYZT.
+    ///
+    /// Batch transforms use this to decide which columns to hand to PROJ, so
+    /// declaring it correctly means a 2D type never pays to move `z`/`t` data
+    /// that would be discarded anyway. It is const-evaluated, so the branches
+    /// for unused columns compile away entirely.
+    ///
+    /// There is deliberately no default: getting this wrong costs memory
+    /// bandwidth on every batch transform, so it must be a decision rather than
+    /// an oversight. Set it to the number of components your `from_xyzt`
+    /// actually reads.
+    const DIMS: usize;
+
     /// The `x` (or longitude / easting) component.
     fn x(&self) -> f64;
     /// The `y` (or latitude / northing) component.
@@ -47,6 +61,7 @@ impl Coord2 {
 }
 
 impl Coord for Coord2 {
+    const DIMS: usize = 2;
     #[inline]
     fn x(&self) -> f64 {
         self.x
@@ -89,6 +104,7 @@ impl Coord3 {
 }
 
 impl Coord for Coord3 {
+    const DIMS: usize = 3;
     #[inline]
     fn x(&self) -> f64 {
         self.x
@@ -136,6 +152,7 @@ impl Coord4 {
 }
 
 impl Coord for Coord4 {
+    const DIMS: usize = 4;
     #[inline]
     fn x(&self) -> f64 {
         self.x
@@ -172,6 +189,7 @@ impl From<Coord4> for (f64, f64, f64, f64) {
 
 /// 2-D tuple (`(x, y)`).
 impl Coord for (f64, f64) {
+    const DIMS: usize = 2;
     #[inline]
     fn x(&self) -> f64 {
         self.0
@@ -196,6 +214,7 @@ impl Coord for (f64, f64) {
 
 /// 3-D tuple (`(x, y, z)`).
 impl Coord for (f64, f64, f64) {
+    const DIMS: usize = 3;
     #[inline]
     fn x(&self) -> f64 {
         self.0
@@ -220,6 +239,7 @@ impl Coord for (f64, f64, f64) {
 
 /// 4-D tuple (`(x, y, z, t)`).
 impl Coord for (f64, f64, f64, f64) {
+    const DIMS: usize = 4;
     #[inline]
     fn x(&self) -> f64 {
         self.0
@@ -239,6 +259,69 @@ impl Coord for (f64, f64, f64, f64) {
     #[inline]
     fn from_xyzt(x: f64, y: f64, z: f64, t: f64) -> Self {
         (x, y, z, t)
+    }
+}
+
+/// Interleaved 2-D array (`[x, y]`).
+impl Coord for [f64; 2] {
+    const DIMS: usize = 2;
+    #[inline]
+    fn x(&self) -> f64 {
+        self[0]
+    }
+    #[inline]
+    fn y(&self) -> f64 {
+        self[1]
+    }
+    #[inline]
+    fn from_xyzt(x: f64, y: f64, _z: f64, _t: f64) -> Self {
+        [x, y]
+    }
+}
+
+/// Interleaved 3-D array (`[x, y, z]`).
+impl Coord for [f64; 3] {
+    const DIMS: usize = 3;
+    #[inline]
+    fn x(&self) -> f64 {
+        self[0]
+    }
+    #[inline]
+    fn y(&self) -> f64 {
+        self[1]
+    }
+    #[inline]
+    fn z(&self) -> f64 {
+        self[2]
+    }
+    #[inline]
+    fn from_xyzt(x: f64, y: f64, z: f64, _t: f64) -> Self {
+        [x, y, z]
+    }
+}
+
+/// Interleaved 4-D array (`[x, y, z, t]`).
+impl Coord for [f64; 4] {
+    const DIMS: usize = 4;
+    #[inline]
+    fn x(&self) -> f64 {
+        self[0]
+    }
+    #[inline]
+    fn y(&self) -> f64 {
+        self[1]
+    }
+    #[inline]
+    fn z(&self) -> f64 {
+        self[2]
+    }
+    #[inline]
+    fn t(&self) -> f64 {
+        self[3]
+    }
+    #[inline]
+    fn from_xyzt(x: f64, y: f64, z: f64, t: f64) -> Self {
+        [x, y, z, t]
     }
 }
 
@@ -356,6 +439,7 @@ mod geo_adapter {
     use super::Coord;
 
     impl Coord for geo::Coord {
+        const DIMS: usize = 2;
         #[inline]
         fn x(&self) -> f64 {
             self.x
@@ -371,6 +455,7 @@ mod geo_adapter {
     }
 
     impl Coord for geo::Point {
+        const DIMS: usize = 2;
         #[inline]
         fn x(&self) -> f64 {
             self.0.x
@@ -392,6 +477,7 @@ mod nalgebra_adapter {
     use nalgebra::{Point2, Point3, Vector2, Vector3};
 
     impl Coord for Vector2<f64> {
+        const DIMS: usize = 2;
         #[inline]
         fn x(&self) -> f64 {
             self.x
@@ -407,6 +493,7 @@ mod nalgebra_adapter {
     }
 
     impl Coord for Vector3<f64> {
+        const DIMS: usize = 3;
         #[inline]
         fn x(&self) -> f64 {
             self.x
@@ -426,6 +513,7 @@ mod nalgebra_adapter {
     }
 
     impl Coord for Point2<f64> {
+        const DIMS: usize = 2;
         #[inline]
         fn x(&self) -> f64 {
             self.x
@@ -441,6 +529,7 @@ mod nalgebra_adapter {
     }
 
     impl Coord for Point3<f64> {
+        const DIMS: usize = 3;
         #[inline]
         fn x(&self) -> f64 {
             self.x
@@ -466,6 +555,7 @@ mod glam_adapter {
     use glam::{DVec2, DVec3, DVec4};
 
     impl Coord for DVec2 {
+        const DIMS: usize = 2;
         #[inline]
         fn x(&self) -> f64 {
             self.x
@@ -481,6 +571,7 @@ mod glam_adapter {
     }
 
     impl Coord for DVec3 {
+        const DIMS: usize = 3;
         #[inline]
         fn x(&self) -> f64 {
             self.x
@@ -500,6 +591,7 @@ mod glam_adapter {
     }
 
     impl Coord for DVec4 {
+        const DIMS: usize = 4;
         #[inline]
         fn x(&self) -> f64 {
             self.x

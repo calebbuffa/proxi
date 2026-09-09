@@ -871,7 +871,7 @@ pub(crate) fn operation_grids(
 }
 
 fn grid_readiness(
-    ctx: &Context,
+    #[cfg_attr(not(feature = "network"), allow(unused_variables))] ctx: &Context,
     available: bool,
     direct_download: bool,
 ) -> crate::transform::GridReadiness {

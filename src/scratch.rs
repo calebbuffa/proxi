@@ -40,4 +40,20 @@ impl Scratch {
         self.zs.resize(n, 0.0);
         self.ts.resize(n, 0.0);
     }
+
+    /// Borrow the first `n` elements of all four buffers simultaneously.
+    ///
+    /// Returns disjoint mutable slices so a caller can pass `x`, `y`, `z`, and
+    /// `t` to PROJ in one call without fighting the borrow checker.
+    pub(crate) fn split_prefix(
+        &mut self,
+        n: usize,
+    ) -> (&mut [f64], &mut [f64], &mut [f64], &mut [f64]) {
+        (
+            &mut self.xs[..n],
+            &mut self.ys[..n],
+            &mut self.zs[..n],
+            &mut self.ts[..n],
+        )
+    }
 }

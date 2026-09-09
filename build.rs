@@ -260,10 +260,10 @@ fn run_superbuild() {
     if has_flag("tiff") {
         cmd.arg("-DPROXI_ENABLE_TIFF=ON");
     }
-    if cfg!(target_os = "macos") {
-        if let Ok(arch) = env::var("CMAKE_OSX_ARCHITECTURES") {
-            cmd.arg(format!("-DCMAKE_OSX_ARCHITECTURES={arch}"));
-        }
+    if cfg!(target_os = "macos")
+        && let Ok(arch) = env::var("CMAKE_OSX_ARCHITECTURES")
+    {
+        cmd.arg(format!("-DCMAKE_OSX_ARCHITECTURES={arch}"));
     }
 
     // Configure.

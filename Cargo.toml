@@ -1,9 +1,9 @@
 [package]
 name = "proxi"
 description = "High-performance, user-friendly Rust bindings for PROJ"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 keywords = ["proj", "projection", "coordinate", "transformation", "geospatial"]
@@ -28,6 +28,8 @@ tar = "0.4"             # bundled archive extraction
 zip = "7.2"             # bundled .zip extraction
 serde_json = "1.0"      # parse proxi-native-manifest.json
 toml = "0.9"            # parse native/versions.toml (used by cache.rs if enabled)
+fs4 = "0.13"            # cross-platform advisory cache locks
+serde = { version = "1.0", features = ["derive"] }
 ureq = "3.0"            # pure-Rust HTTP fallback for archive downloads
 ctrlc = "3.4"           # interrupt handling for native build processes
 

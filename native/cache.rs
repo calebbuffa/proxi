@@ -14,22 +14,25 @@
 //! cache directory layout, so it's a candidate for extraction into a
 //! standalone crate if a second consumer ever needs the same machinery.
 
+use fs4::fs_std::FileExt;
+use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::thread;
 use std::time::Duration;
 
 /// A single pinned native dependency.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct NativeDep {
+    #[serde(skip)]
     pub name: String,
     pub version: String,
     pub url: String,
     pub sha256: String,
     /// Cache filename (derived from the URL basename, normalized).
+    #[serde(skip)]
     pub archive_file: String,
 }
 
@@ -48,91 +51,17 @@ impl NativeVersions {
         Self::parse(&text)
     }
 
-    /// Minimal TOML parser for the known flat structure:
-    /// `[name]` sections with `version`, `url`, `sha256` keys.
     pub fn parse(text: &str) -> Result<Self, String> {
-        let mut deps = BTreeMap::new();
-        let mut current: Option<String> = None;
-        let mut ver = String::new();
-        let mut url = String::new();
-        let mut sha = String::new();
-
-        for (idx, raw_line) in text.lines().enumerate() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if line.starts_with('[') && line.ends_with(']') {
-                // Close the previous section.
-                if let Some(name) = current.take() {
-                    if ver.is_empty() || url.is_empty() || sha.is_empty() {
-                        return Err(format!(
-                            "versions.toml line {}: section [{name}] missing version/url/sha256",
-                            idx + 1
-                        ));
-                    }
-                    let archive_file = archive_filename(&url, &name);
-                    deps.insert(
-                        name.clone(),
-                        NativeDep {
-                            name: name.clone(),
-                            version: ver.clone(),
-                            url: url.clone(),
-                            sha256: sha.clone(),
-                            archive_file,
-                        },
-                    );
-                }
-                ver.clear();
-                url.clear();
-                sha.clear();
-                let name = line[1..line.len() - 1].trim().to_string();
-                if name.is_empty() {
-                    return Err(format!(
-                        "versions.toml line {}: empty section name",
-                        idx + 1
-                    ));
-                }
-                current = Some(name);
-                continue;
-            }
-            if let Some(eq) = line.find('=') {
-                let key = line[..eq].trim();
-                // Strip inline comments: `value # comment` → `value`.
-                let value_raw = line[eq + 1..].trim();
-                let value = value_raw
-                    .split('#')
-                    .next()
-                    .unwrap_or(value_raw)
-                    .trim()
-                    .trim_matches('"');
-                match key {
-                    "version" => ver = value.to_string(),
-                    "url" => url = value.to_string(),
-                    "sha256" => sha = value.to_string(),
-                    _ => {}
-                }
-            }
-        }
-        // Close the final section.
-        if let Some(name) = current.take() {
-            if ver.is_empty() || url.is_empty() || sha.is_empty() {
-                return Err(format!(
-                    "versions.toml: section [{name}] missing version/url/sha256"
-                ));
-            }
-            let archive_file = archive_filename(&url, &name);
-            deps.insert(
-                name.clone(),
-                NativeDep {
-                    name: name.clone(),
-                    version: ver.clone(),
-                    url: url.clone(),
-                    sha256: sha.clone(),
-                    archive_file,
-                },
-            );
-        }
+        let sections: BTreeMap<String, NativeDep> =
+            toml::from_str(text).map_err(|error| format!("invalid versions.toml: {error}"))?;
+        let deps = sections
+            .into_iter()
+            .map(|(name, mut dep)| {
+                dep.name = name.clone();
+                dep.archive_file = archive_filename(&dep.url, &name);
+                (name, dep)
+            })
+            .collect();
         Ok(Self { deps })
     }
 
@@ -151,14 +80,13 @@ fn archive_filename(url: &str, name: &str) -> String {
         .map(|s| s.to_string())
         .unwrap_or_else(|| name.to_string());
     // Normalize the sqlite amalgamation zip name for a stable cache key.
-    if base.starts_with("sqlite-amalgamation") {
-        if let Some(v) = base
+    if base.starts_with("sqlite-amalgamation")
+        && let Some(v) = base
             .rsplit('-')
             .next()
             .map(|s| s.trim_end_matches(".zip").to_string())
-        {
-            return format!("sqlite-{v}.zip");
-        }
+    {
+        return format!("sqlite-{v}.zip");
     }
     base
 }
@@ -442,12 +370,12 @@ pub fn ensure_source(dep: &NativeDep) -> Result<PathBuf, String> {
 /// Falls back to curl/wget/python if ureq fails (network issues, proxies, etc.).
 fn download(url: &str, dest: &Path) -> Result<(), String> {
     // 1. ureq (pure Rust, always available, no external tool required).
-    if let Ok(resp) = ureq::get(url).call() {
-        if let Ok(mut f) = fs::File::create(dest) {
-            let mut body = resp.into_body();
-            if std::io::copy(&mut body.as_reader(), &mut f).is_ok() {
-                return Ok(());
-            }
+    if let Ok(resp) = ureq::get(url).call()
+        && let Ok(mut f) = fs::File::create(dest)
+    {
+        let mut body = resp.into_body();
+        if std::io::copy(&mut body.as_reader(), &mut f).is_ok() {
+            return Ok(());
         }
     }
 
@@ -559,49 +487,55 @@ fn extract_archive(archive: &Path, dest: &Path) -> Result<(), String> {
 }
 
 fn acquire_cache_lock(path: &Path) -> Result<CacheLock, String> {
-    for _ in 0..600 {
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-        {
-            Ok(_) => {
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    // The lock file's *contents* are never used — only its existence and the
+    // advisory lock on it. `truncate(false)` says so explicitly and preserves
+    // any concurrent holder's file.
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .map_err(|error| format!("cannot open cache lock {}: {error}", path.display()))?;
+    loop {
+        match file.try_lock_exclusive() {
+            Ok(true) => {
                 return Ok(CacheLock {
+                    file,
                     path: path.to_path_buf(),
                 });
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let stale = fs::metadata(path)
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|t| t.elapsed().ok())
-                    .is_some_and(|age| age > Duration::from_secs(24 * 60 * 60));
-                if stale {
-                    let _ = fs::remove_file(path);
-                    continue;
-                }
-                thread::sleep(Duration::from_millis(100));
+            Ok(false) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Ok(false) => {
+                return Err(format!(
+                    "timed out waiting for cache lock {}",
+                    path.display()
+                ));
+            }
+            Err(error) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(100));
+                let _ = error;
             }
             Err(error) => {
                 return Err(format!(
-                    "cannot create cache lock {}: {error}",
+                    "timed out waiting for cache lock {}: {error}",
                     path.display()
                 ));
             }
         }
     }
-    Err(format!(
-        "timed out waiting for cache lock {}",
-        path.display()
-    ))
 }
 
 struct CacheLock {
+    file: fs::File,
     path: PathBuf,
 }
 
 impl Drop for CacheLock {
     fn drop(&mut self) {
+        let _ = self.file.unlock();
         let _ = fs::remove_file(&self.path);
     }
 }

@@ -61,17 +61,17 @@ impl SystemProbe for VcpkgProbe {
     #[cfg(target_env = "msvc")]
     fn try_use(&self) -> bool {
         let mut config = vcpkg::Config::new();
-        if let Ok(lib) = config.find_package(self.package) {
-            if let Some(inc) = lib.include_paths.first() {
-                eprintln!("PROXI: using vcpkg {} at {}", self.package, inc.display());
-                let prefix = inc.parent().unwrap_or(inc);
-                let data_dir = prefix.join("share").join("proj");
-                if data_dir.is_dir() {
-                    println!("cargo:data_dir={}", data_dir.display());
-                }
-                println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
-                return true;
+        if let Ok(lib) = config.find_package(self.package)
+            && let Some(inc) = lib.include_paths.first()
+        {
+            eprintln!("PROXI: using vcpkg {} at {}", self.package, inc.display());
+            let prefix = inc.parent().unwrap_or(inc);
+            let data_dir = prefix.join("share").join("proj");
+            if data_dir.is_dir() {
+                println!("cargo:data_dir={}", data_dir.display());
             }
+            println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
+            return true;
         }
         false
     }

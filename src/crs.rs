@@ -320,15 +320,12 @@ impl<'context> Crs<'context> {
         Self { obj, context }
     }
 
-    /// Serialize this CRS as WKT in the requested version, with PROJ's default
-    /// formatting options.
-    pub fn to_wkt(&self, version: WktVersion) -> Result<String> {
-        self.to_wkt_with_options(version, None)
-    }
-
-    /// Serialize this CRS as WKT in the requested version, applying PROJ's
-    /// WKT output options (multiline, indentation, axis order, always_xy, ...).
-    pub fn to_wkt_with_options(
+    /// Serialize this CRS as WKT in the requested version.
+    ///
+    /// Pass `None` for `options` to use PROJ's default formatting, or
+    /// [`WktOptions`](crate::options::WktOptions) to control multiline output,
+    /// indentation, axis order, and `always_xy`.
+    pub fn to_wkt(
         &self,
         version: WktVersion,
         options: Option<&crate::options::WktOptions>,
@@ -341,16 +338,8 @@ impl<'context> Crs<'context> {
         ffi::as_projjson(&self.obj)
     }
 
-    /// Serialize this CRS as a PROJ string (`+proj=...`) in the WKT2-era form.
-    pub fn to_proj_string(&self) -> Result<String> {
-        self.to_proj_string_with_version(crate::options::ProjStringVersion::Proj5)
-    }
-
-    /// Serialize this CRS as a PROJ string in the requested format.
-    pub fn to_proj_string_with_version(
-        &self,
-        version: crate::options::ProjStringVersion,
-    ) -> Result<String> {
+    /// Serialize this CRS as a PROJ string (`+proj=...`) in the requested format.
+    pub fn to_proj_string(&self, version: crate::options::ProjStringVersion) -> Result<String> {
         ffi::as_proj_string(&self.obj, self.context, version)
     }
 

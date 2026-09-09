@@ -15,13 +15,13 @@ fn geo_types_transform() {
     // geo_types::Coord and ::Point<f64> are both `Coord`.
     let p: geo::Coord = geo::coord! { x: 0.0, y: 0.0 };
     let out = t
-        .transform_coord(p, proxi::Direction::Forward, proxi::AngularUnits::Auto)
+        .transform(p, proxi::Direction::Forward, proxi::AngularUnits::Auto)
         .expect("geo::Coord transform");
     assert!((out.x - 0.0).abs() < 1e-9 && (out.y - 0.0).abs() < 1e-9);
 
     let pt: geo::Point = geo::point! { x: 0.0, y: 1.0 };
     let out_pt = t
-        .transform_coord(pt, proxi::Direction::Forward, proxi::AngularUnits::Auto)
+        .transform(pt, proxi::Direction::Forward, proxi::AngularUnits::Auto)
         .expect("geo::Point transform");
     assert!(out_pt.x().is_finite() && out_pt.y().is_finite());
 }
@@ -37,13 +37,13 @@ fn nalgebra_types_transform() {
 
     let v2 = nalgebra::Vector2::new(0.0, 0.0);
     let out = t
-        .transform_coord(v2, proxi::Direction::Forward, proxi::AngularUnits::Auto)
+        .transform(v2, proxi::Direction::Forward, proxi::AngularUnits::Auto)
         .expect("nalgebra Vector2");
     assert!((out.x - 0.0).abs() < 1e-9 && (out.y - 0.0).abs() < 1e-9);
 
     let p3 = nalgebra::Point3::new(0.0, 0.0, 10.0);
     let out_p = t
-        .transform_coord(p3, proxi::Direction::Forward, proxi::AngularUnits::Auto)
+        .transform(p3, proxi::Direction::Forward, proxi::AngularUnits::Auto)
         .expect("nalgebra Point3");
     assert!(out_p.z.is_finite());
 }
@@ -59,15 +59,60 @@ fn glam_types_transform() {
 
     let v2 = glam::DVec2::new(0.0, 0.0);
     let out = t
-        .transform_coord(v2, proxi::Direction::Forward, proxi::AngularUnits::Auto)
+        .transform(v2, proxi::Direction::Forward, proxi::AngularUnits::Auto)
         .expect("glam DVec2");
     assert!((out.x - 0.0).abs() < 1e-9 && (out.y - 0.0).abs() < 1e-9);
 
     let v3 = glam::DVec3::new(0.0, 0.0, 5.0);
     let out3 = t
-        .transform_coord(v3, proxi::Direction::Forward, proxi::AngularUnits::Auto)
+        .transform(v3, proxi::Direction::Forward, proxi::AngularUnits::Auto)
         .expect("glam DVec3");
     assert!(out3.z.is_finite());
+}
+
+/// `Coord::DIMS` decides how many columns a batch transform moves, so an
+/// over-declared value silently wastes memory bandwidth on every call. These
+/// are compile-time assertions: a wrong `DIMS` fails the build, not the run.
+#[test]
+fn adapter_types_declare_minimal_dims() {
+    use proxi::Coord;
+
+    const fn assert_dims<C: Coord>(expected: usize) {
+        assert!(C::DIMS == expected);
+    }
+
+    const {
+        assert_dims::<proxi::Coord2>(2);
+        assert_dims::<proxi::Coord3>(3);
+        assert_dims::<proxi::Coord4>(4);
+        assert_dims::<(f64, f64)>(2);
+        assert_dims::<(f64, f64, f64)>(3);
+        assert_dims::<(f64, f64, f64, f64)>(4);
+        assert_dims::<[f64; 2]>(2);
+        assert_dims::<[f64; 3]>(3);
+        assert_dims::<[f64; 4]>(4);
+    }
+
+    #[cfg(feature = "geo")]
+    const {
+        assert_dims::<geo::Coord>(2);
+        assert_dims::<geo::Point>(2);
+    }
+
+    #[cfg(feature = "nalgebra")]
+    const {
+        assert_dims::<nalgebra::Vector2<f64>>(2);
+        assert_dims::<nalgebra::Vector3<f64>>(3);
+        assert_dims::<nalgebra::Point2<f64>>(2);
+        assert_dims::<nalgebra::Point3<f64>>(3);
+    }
+
+    #[cfg(feature = "glam")]
+    const {
+        assert_dims::<glam::DVec2>(2);
+        assert_dims::<glam::DVec3>(3);
+        assert_dims::<glam::DVec4>(4);
+    }
 }
 
 #[cfg(feature = "serde")]
