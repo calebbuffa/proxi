@@ -56,13 +56,13 @@ for rec in db.crs_search(Some("EPSG"), &proxi::CrsSearch {
 
 There is one way to do each thing:
 
-| Task | Method |
-| --- | --- |
-| One coordinate (any `Coord` type) | `transform` |
-| Many coordinates in a slice (any `Coord` type, including interleaved `[f64; N]`) | `transform_coords` |
-| Same, skipping `NaN`/`Inf` points | `transform_coords_finite` |
-| Separate `x`/`y`/`z` buffers (fastest, zero-copy) | `transform_batch` |
-| A bounds rectangle | `transform_bounds` |
+| Task                                                                             | Method                    |
+| -------------------------------------------------------------------------------- | ------------------------- |
+| One coordinate (any `Coord` type)                                                | `transform`               |
+| Many coordinates in a slice (any `Coord` type, including interleaved `[f64; N]`) | `transform_coords`        |
+| Same, skipping `NaN`/`Inf` points                                                | `transform_coords_finite` |
+| Separate `x`/`y`/`z` buffers (fastest, zero-copy)                                | `transform_batch`         |
+| A bounds rectangle                                                               | `transform_bounds`        |
 
 Layout is not part of the method name. `transform_coords` takes any slice whose
 element implements `Coord` - `Coord3`, `(f64, f64, f64)`, interleaved
@@ -174,3 +174,9 @@ through `PROJ_DIR`, vcpkg, or pkg-config uses that installation's configuration.
 ## License
 
 MIT or Apache-2.0, at your option.
+
+Bundled native dependencies (PROJ, SQLite, zlib, libtiff, libcurl, OpenSSL) are all
+permissively licensed; their notices, the `proj.db`/EPSG terms, and a note on
+PROJ-data grid licences are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+If you never download grids, build with `default-features = false, features = ["tiff"]`
+to leave out libcurl and TLS.
