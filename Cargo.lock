@@ -1615,9 +1615,9 @@ checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 
 [[package]]
 name = "woodshed"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "566d45b4800920b6147dae651c72d42af7b5cf93b729efaa878ef9827a5a1ba8"
+checksum = "1e0bd909eb21f12c98d108cbdc290a5a5723b618bdf4c93c9103fd86739ffb65"
 dependencies = [
  "ctrlc",
  "flate2",
