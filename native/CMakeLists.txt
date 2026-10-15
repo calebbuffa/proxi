@@ -3,7 +3,7 @@
 # Builds the complete native dependency graph for proxi into a single private
 # prefix:
 #
-#   zlib → sqlite (lib + host sqlite3) → TLS backend → libcurl → libtiff → PROJ
+# zlib -> sqlite (lib + host sqlite3) -> TLS backend -> libcurl -> libtiff -> PROJ
 #
 # Everything is built from pinned, checksum-verified local archives (provided
 # by the Rust archive cache). No system PROJ / CURL / TIFF is assumed. The
@@ -79,7 +79,7 @@ if(COMPILER_LAUNCHER)
 endif()
 
 # ============ SQLite: host tool + target library ============
-proxi_source_dir(sqlite "3450300" SQLITE_SRC)
+proxi_source_dir(sqlite "${PROXI_VERSION_SQLITE}" SQLITE_SRC)
 
 if(CMAKE_CROSSCOMPILING)
   # Cross-compile: build sqlite3 CLI for the HOST, sqlite lib for TARGET.
@@ -122,7 +122,7 @@ endif()
 set(SQLITE_INSTALL "${CMAKE_INSTALL_PREFIX}")
 
 # ---------------- zlib ----------------
-proxi_source_dir(zlib "1.3.1" ZLIB_SRC)
+proxi_source_dir(zlib "${PROXI_VERSION_ZLIB}" ZLIB_SRC)
 ExternalProject_Add(ep_zlib
   SOURCE_DIR "${ZLIB_SRC}"
   CMAKE_ARGS ${COMMON_ARGS}
@@ -137,7 +137,7 @@ add_dependencies(sqlite3 ep_zlib)
 # required for a self-contained Linux curl. Respects CMAKE_C_COMPILER,
 # CMAKE_C_FLAGS, and CMAKE_SYSTEM_PROCESSOR for architecture support.
 if(NOT WIN32 AND NOT APPLE)
-  proxi_source_dir(openssl "3.0.13" OPENSSL_SRC)
+  proxi_source_dir(openssl "${PROXI_VERSION_OPENSSL}" OPENSSL_SRC)
 
   # Detect OpenSSL platform string from CMAKE_SYSTEM_PROCESSOR.
   # OpenSSL uses names like "linux-x86_64", "linux-arm64", "linux-armv7l".
@@ -221,7 +221,7 @@ elseif(APPLE)
 else()
   list(APPEND CURL_CMAKE_ARGS -DCURL_USE_OPENSSL=ON)
 endif()
-proxi_source_dir(curl "8.7.1" CURL_SRC)
+proxi_source_dir(curl "${PROXI_VERSION_CURL}" CURL_SRC)
 if(NOT WIN32 AND NOT APPLE)
   set(CURL_DEPENDS ep_zlib ep_openssl)
 else()
@@ -237,7 +237,7 @@ set(CURL_INSTALL "${CMAKE_INSTALL_PREFIX}")
 
 # ---------------- libtiff ----------------
 if(ENABLE_TIFF)
-  proxi_source_dir(tiff "4.6.0" TIFF_SRC)
+  proxi_source_dir(tiff "${PROXI_VERSION_TIFF}" TIFF_SRC)
   ExternalProject_Add(ep_tiff
     SOURCE_DIR "${TIFF_SRC}"
     CMAKE_ARGS ${COMMON_ARGS}
@@ -268,7 +268,7 @@ list(APPEND PROJ_CMAKE_ARGS
   -DSQLite3_LIBRARY=${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}sqlite3${CMAKE_STATIC_LIBRARY_SUFFIX}
   -DSQLITE3_EXECUTABLE=${SQLITE3_EXECUTABLE}
 )
-proxi_source_dir(proj "9.4.1" PROJ_SRC)
+proxi_source_dir(proj "${PROXI_VERSION_PROJ}" PROJ_SRC)
 set(PROJ_DEPENDS ep_zlib sqlite3)
 if(CMAKE_CROSSCOMPILING)
   list(APPEND PROJ_DEPENDS sqlite3_host)  # Ensure host sqlite3 is available

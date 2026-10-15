@@ -260,6 +260,14 @@ fn run_superbuild() {
             cache.sources_dir().display().to_string(),
         );
 
+    // Versions come from versions.toml only, so `woodshed bump` is the single
+    // place a dependency version changes.
+    for dep in versions.iter() {
+        build = build.define(
+            format!("PROXI_VERSION_{}", dep.name.to_uppercase()),
+            &dep.version,
+        );
+    }
     if has_flag("network") {
         build = build.define("PROXI_ENABLE_NETWORK", "ON");
     }
