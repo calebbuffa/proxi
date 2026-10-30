@@ -221,7 +221,18 @@ if(WIN32)
 elseif(APPLE)
   list(APPEND CURL_CMAKE_ARGS -DCURL_USE_SECTRANSP=ON -DCURL_USE_OPENSSL=OFF)
 else()
-  list(APPEND CURL_CMAKE_ARGS -DCURL_USE_OPENSSL=ON)
+  # Match curl's headers and link interface to the OpenSSL we build below.
+  # Without these hints, FindOpenSSL can select newer system headers while
+  # the final Proxi link uses the private static OpenSSL libraries.
+  list(APPEND CURL_CMAKE_ARGS
+    -DCURL_USE_OPENSSL=ON
+    -DCMAKE_PREFIX_PATH=${CMAKE_INSTALL_PREFIX}
+    -DOPENSSL_ROOT_DIR=${CMAKE_INSTALL_PREFIX}
+    -DOPENSSL_INCLUDE_DIR=${CMAKE_INSTALL_PREFIX}/include
+    -DOPENSSL_SSL_LIBRARY=${CMAKE_INSTALL_PREFIX}/lib/libssl.a
+    -DOPENSSL_CRYPTO_LIBRARY=${CMAKE_INSTALL_PREFIX}/lib/libcrypto.a
+    -DOPENSSL_USE_STATIC_LIBS=TRUE
+  )
 endif()
 proxi_source_dir(curl "${PROXI_VERSION_CURL}" CURL_SRC)
 if(NOT WIN32 AND NOT APPLE)
