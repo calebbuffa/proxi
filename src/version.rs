@@ -25,9 +25,9 @@ pub struct ProjVersion {
     pub minor: u32,
     /// Patch version number (runtime).
     pub patch: u32,
-    /// The version string returned by PROJ (e.g. "Rel. 9.4.1, March 1st, 2024").
+    /// The version string returned by PROJ (e.g. "Rel. 9.9.0").
     pub release: Option<String>,
-    /// The bare version string (e.g. "9.4.1" or "9.4.0").
+    /// The bare version string (e.g. "9.9.0").
     pub version: Option<String>,
     /// PROJ's computed search path (the `searchpath` field).
     pub search_path: Option<String>,

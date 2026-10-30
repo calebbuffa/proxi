@@ -4,11 +4,12 @@
 When built with the bundled native toolchain it compiles and statically links the
 software below. All of it is permissively licensed. If you redistribute a binary
 that contains it, reproduce each notice. This file is informational, not legal
-advice. Exact versions and checksums are pinned in `native/versions.toml`.
+advice. Exact versions are declared in `native/woodshed.toml`; checksums are
+pinned in `native/woodshed.lock`.
 
 | Component | Version | Licence             | When linked                                                        |
 | --------- | ------- | ------------------- | ------------------------------------------------------------------ |
-| PROJ      | 9.4.1   | MIT                 | always                                                             |
+| PROJ      | 9.9.0   | MIT                 | always                                                             |
 | SQLite    | 3.45.3  | Public domain       | always                                                             |
 | zlib      | 1.3.1   | zlib licence        | always                                                             |
 | libtiff   | 4.6.0   | libtiff (BSD-style) | `tiff` feature (default)                                           |

@@ -45,7 +45,7 @@ jobs:
             ~/.cargo/git
             ~/.cargo/woodshed
             target
-          key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'native/versions.toml') }}
+          key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'native/woodshed.toml', 'native/woodshed.lock') }}
           restore-keys: |
             ${{ runner.os }}-
       - run: cargo build --verbose

@@ -1,0 +1,32 @@
+# Native source releases used by the bundled PROJ superbuild.
+
+[dependencies.proj]
+version = "9.9.0"
+url = "https://download.osgeo.org/proj/proj-{version}.tar.gz"
+markers = ["CMakeLists.txt", "src/lib_proj.cmake", "src/proj.h", "src/geodesic.c"]
+
+[dependencies.sqlite]
+version = "3450300"
+url = "https://sqlite.org/2024/sqlite-amalgamation-3450300.zip"
+file = "sqlite-3450300.zip"
+markers = ["sqlite3.c", "sqlite3.h", "shell.c", "sqlite3ext.h"]
+
+[dependencies.zlib]
+version = "1.3.1"
+url = "https://github.com/madler/zlib/releases/download/v{version}/zlib-{version}.tar.gz"
+markers = ["CMakeLists.txt", "zlib.h", "deflate.c", "inflate.c"]
+
+[dependencies.tiff]
+version = "4.6.0"
+url = "https://download.osgeo.org/libtiff/tiff-{version}.tar.gz"
+markers = ["CMakeLists.txt", "libtiff/tif_aux.c", "libtiff/tiff.h"]
+
+[dependencies.curl]
+version = "8.7.1"
+url = "https://curl.se/download/curl-{version}.tar.gz"
+markers = ["CMakeLists.txt", "lib/easy.c", "include/curl/curl.h"]
+
+[dependencies.openssl]
+version = "3.0.13"
+url = "https://www.openssl.org/source/openssl-{version}.tar.gz"
+markers = ["Configure", "crypto/", "apps/", "test/"]

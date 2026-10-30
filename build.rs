@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use woodshed::{BuildKey, Cache, CmakeBuild, Manifest, MsvcRuntime, probe};
+use woodshed::{BuildKey, Cache, CmakeBuild, MsvcRuntime, probe, project::Project};
 
 #[path = "native/manifest.rs"]
 mod manifest;
@@ -166,26 +166,32 @@ fn run_superbuild() {
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set by cargo"));
     let source_dir = manifest_dir.join("native");
 
-    let versions = Manifest::load_default(&manifest_dir)
-        .unwrap_or_else(|e| panic!("PROXI: cannot load native/versions.toml: {e}"));
+    let project = Project::load(manifest_dir.join("native/woodshed.toml"))
+        .unwrap_or_else(|e| panic!("PROXI: cannot load native/woodshed.toml: {e}"));
+    let lock = project
+        .locked()
+        .unwrap_or_else(|e| panic!("PROXI: cannot validate native/woodshed.lock: {e}"));
+    let sources = &lock.sources;
     let cache = Cache::discover().unwrap_or_else(|e| panic!("PROXI: {e}"));
 
     // Resolve, verify, and extract every pinned archive before configuring, so
     // a bad checksum fails in seconds rather than mid-superbuild.
-    for dep in versions.iter() {
-        cache.source(dep).unwrap_or_else(|e| {
+    let mut source_paths = Vec::new();
+    for dep in sources.values() {
+        let source = cache.source(dep).unwrap_or_else(|e| {
             panic!(
                 "PROXI: failed to provision native dependency `{}`: {e}",
                 dep.name
             )
         });
+        source_paths.push((dep.name.clone(), source));
     }
 
     // The build tree's identity is everything that changes its output. CMake
     // source contents are deliberately excluded: the tree must be reused so
     // CMake can rebuild only the external projects a source edit affects.
     let mut key = BuildKey::new("proxi");
-    for dep in versions.iter() {
+    for dep in sources.values() {
         key = key.dep(dep);
     }
     key = key
@@ -260,12 +266,20 @@ fn run_superbuild() {
             cache.sources_dir().display().to_string(),
         );
 
-    // Versions come from versions.toml only, so `woodshed bump` is the single
-    // place a dependency version changes.
-    for dep in versions.iter() {
+    // Let CMake consume explicit content-addressed source roots rather than
+    // reconstructing Woodshed's private cache directory layout.
+    for dep in sources.values() {
         build = build.define(
             format!("PROXI_VERSION_{}", dep.name.to_uppercase()),
             &dep.version,
+        );
+        let source = source_paths
+            .iter()
+            .find(|(name, _)| name == &dep.name)
+            .expect("source path was acquired above");
+        build = build.define(
+            format!("PROXI_SOURCE_{}_DIR", dep.name.to_uppercase()),
+            source.1.to_string_lossy(),
         );
     }
     if has_flag("network") {
@@ -316,7 +330,8 @@ fn native_prefix_is_complete(prefix: &Path, manifest_path: &Path) -> bool {
 
 /// Tell Cargo which superbuild inputs invalidate the manifest.
 fn emit_superbuild_rerun_directives() {
-    println!("cargo:rerun-if-changed=native/versions.toml");
+    println!("cargo:rerun-if-changed=native/woodshed.toml");
+    println!("cargo:rerun-if-changed=native/woodshed.lock");
     println!("cargo:rerun-if-changed=native/manifest.rs");
     println!("cargo:rerun-if-changed=native/CMakeLists.txt");
     println!("cargo:rerun-if-changed=native/sqlite/CMakeLists.txt");
@@ -357,7 +372,10 @@ fn emit_embedded_data(manifest_path: &Path) {
         .collect();
 
     let mut generated = String::new();
-    generated.push_str("pub(crate) const PROJ_VERSION: &str = \"9.4.1\";\n");
+    generated.push_str(&format!(
+        "pub(crate) const PROJ_VERSION: &str = {:?};\n",
+        manifest_proj_version(manifest_path)
+    ));
     generated.push_str(&format!(
         "pub(crate) const DATA_HASH: &str = \"{data_hash}\";\n"
     ));
@@ -374,6 +392,18 @@ fn emit_embedded_data(manifest_path: &Path) {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR set by cargo"));
     fs::write(out_dir.join("proxi_embedded_data.rs"), generated)
         .expect("write generated embedded PROJ data module");
+}
+
+fn manifest_proj_version(manifest_path: &Path) -> String {
+    let text = fs::read_to_string(manifest_path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", manifest_path.display()));
+    let manifest: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("invalid manifest JSON: {e}"));
+    manifest["proj_version"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| panic!("{} has no proj_version", manifest_path.display()))
 }
 
 fn manifest_data_dir(manifest_path: &Path) -> PathBuf {

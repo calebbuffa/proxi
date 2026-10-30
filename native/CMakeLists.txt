@@ -16,7 +16,7 @@
 #   PROXI_ENABLE_NETWORK ON/OFF  (curl + TLS)
 #   PROXI_ENABLE_TIFF    ON/OFF
 
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.22.1)
 project(proxi-superbuild C CXX)
 
 set(CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" CACHE STRING "proxi prefix")
@@ -41,11 +41,13 @@ if(COMPILER_LAUNCHER)
   set(CMAKE_CXX_COMPILER_LAUNCHER "${COMPILER_LAUNCHER}")
 endif()
 
-# zlib, curl, tiff, proj tarballs extract a single top-level dir.
+# Use source roots supplied by Woodshed. They are keyed by locked content,
+# not by package name/version, and may unwrap a single archive root directory.
 function(proxi_source_dir dep_name dep_version out)
-  set(base "${SOURCES}/${dep_name}-${dep_version}")
+  string(TOUPPER "${dep_name}" dep_upper)
+  set(base "${PROXI_SOURCE_${dep_upper}_DIR}")
   if(NOT IS_DIRECTORY "${base}")
-    message(FATAL_ERROR "superbuild: source dir for ${dep_name} missing: ${base}")
+    message(FATAL_ERROR "superbuild: locked source dir for ${dep_name} missing: ${base}")
   endif()
   file(GLOB entries "${base}/*")
   list(LENGTH entries n)

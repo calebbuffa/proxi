@@ -85,8 +85,9 @@ Provisioning order:
 4. Otherwise the crate builds everything itself.
 
 The superbuild compiles `zlib -> sqlite -> TLS -> libcurl -> libtiff -> PROJ`
-as static libraries into a private prefix. Every dependency is pinned in
-`native/versions.toml` with a checksum; archives live in a deterministic cache.
+as static libraries into a private prefix. `native/woodshed.toml` declares
+the sources and `native/woodshed.lock` pins their checksums; archives and
+content-verified extracted trees live in Woodshed's cache.
 
 System installations are linked as provided by the platform package manager.
 Their enabled PROJ features and transitive dependencies are the system
@@ -97,7 +98,7 @@ When the bundled build is selected, the matching `proj.db` from that build is
 used by default. An ambient `PROJ_DATA` from another PROJ installation is not
 used to override it. This prevents a library and database version mismatch.
 
-Provisioning is handled by [`woodshed`](../woodshed), which also caches the
+Provisioning is handled by [Woodshed](https://crates.io/crates/woodshed), which also caches the
 native build tree outside `OUT_DIR` so editing `build.rs` does not discard it.
 
 - Cache: `$WOODSHED_CACHE` (default `$CARGO_HOME/woodshed`).

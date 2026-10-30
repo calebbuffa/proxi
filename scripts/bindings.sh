@@ -67,9 +67,9 @@ echo "  -> ${OUT}"
   --allowlist-function 'proj_.*|geod_.*|proj_context_.*|proj_create.*|proj_grid.*|proj_normalize.*|proj_area_.*|proj_as_.*|proj_angular_.*|proj_degree_.*|proj_errno.*|proj_list_.*|proj_operation_factory_context.*|proj_coordoperation.*|proj_trans.*|proj_string.*|pj_.*|proj_log_.*|proj_cleanup|proj_get_codes_from_database|proj_get_authorities_from_database|proj_get_angular_units_from_database|proj_get_linear_units_from_database|proj_get_prime_meridians_from_database|proj_get_geoid_models_from_database|proj_get_celestial_body_list|proj_db.*|proj_deref' \
   --allowlist-type 'PJ.*|PROJ.*|geod_.*' \
   --allowlist-var 'PROJ_.*|PJ_.*|GEODESIC_.*|geod_.*' \
+  -o "${OUT}" \
   wrapper.h \
-  -- -I"${INCLUDE_DIR}" \
-  -o "${OUT}"
+  -- -I"${INCLUDE_DIR}"
 
-echo "Regenerated ${OUT}. Verify it matches the pinned PROJ version in native/versions.toml."
+echo "Regenerated ${OUT}. Verify it matches the pinned PROJ version in native/woodshed.toml."
 echo "Then confirm src/sys.rs still compiles (it adds the flat const aliases + PJ_COORD over this output)."
